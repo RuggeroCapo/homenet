@@ -1,0 +1,228 @@
+#!/bin/sh
+# HomeNet rpcd plugin — installed as /usr/libexec/rpcd/homenet
+# Exposes the ubus object "homenet". Keeps work on the router minimal:
+# it only reads kernel/ubus state and emits compact JSON; all parsing and
+# aggregation happens in the HomeNet app on Umbrel.
+
+VERSION=1
+CONF=/etc/homenet.conf
+STATE=/tmp/homenet
+
+MODEM_METHOD=auto              # auto | mmcli | uqmi | at | none
+AT_DEVICE=/dev/ttyUSB2         # AT port used by sms_tool
+QMI_DEVICE=/dev/cdc-wdm0
+SMS_CMD=""                     # defaults to: sms_tool -d $AT_DEVICE -j recv
+CONNTRACK_MAX=4000             # max flow deltas returned per call
+[ -f "$CONF" ] && . "$CONF"
+
+mkdir -p "$STATE"
+
+json_or_null() {
+	case "$1" in
+		\{*|\[*) printf '%s' "$1" ;;
+		*) printf 'null' ;;
+	esac
+}
+
+# escape stdin as the inside of a JSON string
+json_str() {
+	tr -d '\r' | awk 'BEGIN { ORS = "" } { gsub(/\\/, "\\\\"); gsub(/"/, "\\\""); gsub(/\t/, " "); if (NR > 1) print "\\n"; print }'
+}
+
+do_info() {
+	netdev=""
+	for d in /sys/class/net/*; do
+		n=${d##*/}
+		[ "$n" = lo ] && continue
+		rx=$(cat "$d/statistics/rx_bytes" 2>/dev/null || echo 0)
+		tx=$(cat "$d/statistics/tx_bytes" 2>/dev/null || echo 0)
+		netdev="$netdev${netdev:+,}\"$n\":[$rx,$tx]"
+	done
+	board=$(ubus call system board 2>/dev/null)
+	system=$(ubus call system info 2>/dev/null)
+	ifaces=$(ubus call network.interface dump 2>/dev/null)
+	offload=$(uci -q get firewall.@defaults[0].flow_offloading)
+	printf '{"plugin":%s,"board":%s,"system":%s,"ifaces":%s,"netdev":{%s},"offload":"%s","acct":"%s"}\n' \
+		"$VERSION" "$(json_or_null "$board")" "$(json_or_null "$system")" "$(json_or_null "$ifaces")" "$netdev" \
+		"$offload" "$(cat /proc/sys/net/netfilter/nf_conntrack_acct 2>/dev/null)"
+}
+
+do_hosts() {
+	printf '{"leases":['
+	[ -f /tmp/dhcp.leases ] && awk '{ gsub(/["\\]/, "", $4); printf "%s[\"%s\",\"%s\",\"%s\"]", (n++ ? "," : ""), $2, $3, $4 }' /tmp/dhcp.leases
+	printf '],"neigh":['
+	{ ip -4 neigh show; ip -6 neigh show; } 2>/dev/null | awk '{
+		mac = ""; dev = ""
+		for (i = 2; i < NF; i++) { if ($i == "lladdr") mac = $(i + 1); if ($i == "dev") dev = $(i + 1) }
+		if (mac == "") next
+		printf "%s[\"%s\",\"%s\",\"%s\",\"%s\"]", (n++ ? "," : ""), $1, mac, $NF, dev
+	}'
+	printf ']}\n'
+}
+
+do_wifi() {
+	first=1
+	printf '{'
+	for dev in $(ubus call iwinfo devices 2>/dev/null | jsonfilter -e '@.devices[*]' 2>/dev/null); do
+		info=$(ubus call iwinfo info "{\"device\":\"$dev\"}" 2>/dev/null)
+		[ -n "$info" ] || continue
+		assoc=$(ubus call iwinfo assoclist "{\"device\":\"$dev\"}" 2>/dev/null)
+		[ $first = 1 ] || printf ','
+		first=0
+		printf '"%s":{"info":%s,"assoc":%s}' "$dev" "$info" "$(json_or_null "$assoc")"
+	done
+	printf '}\n'
+}
+
+# Emits per-flow byte deltas since the previous call (state kept in RAM under /tmp).
+# Row: [proto, orig_src, orig_sport, orig_dst, orig_dport, d_orig_bytes, reply_src, d_reply_bytes, is_new]
+do_conntrack() {
+	src=/proc/net/nf_conntrack
+	if [ ! -r "$src" ]; then
+		if command -v conntrack >/dev/null; then src=tool; else echo '{"error":"conntrack not available","flows":[]}'; return; fi
+	fi
+	seed=0
+	[ -f "$STATE/ct.state" ] || seed=1
+	{ if [ "$src" = tool ]; then conntrack -L -o extended 2>/dev/null; else cat "$src"; fi; } | awk \
+		-v state="$STATE/ct.state" -v out="$STATE/ct.new" -v seed="$seed" -v max="$CONNTRACK_MAX" '
+	function priv(ip) { return ip ~ /^(10\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[01])\.|127\.|169\.254\.|0\.|2(2[4-9]|[3-5][0-9])\.)/ }
+	BEGIN {
+		while ((getline line < state) > 0) { split(line, a, " "); po[a[1]] = a[2]; pr[a[1]] = a[3] }
+		close(state)
+		printf "{\"seed\":%s,\"flows\":[", (seed ? "true" : "false")
+	}
+	{
+		l3 = $1; proto = $3; n = 0; s = ""; d = ""; sp = 0; dp = 0; obs = ""; rs = ""; rbs = "0"
+		for (i = 4; i <= NF; i++) {
+			eq = index($i, "="); if (!eq) continue
+			k = substr($i, 1, eq - 1); v = substr($i, eq + 1)
+			if (k == "src") { n++; if (n == 1) s = v; else if (n == 2) rs = v }
+			else if (n == 1) {
+				if (k == "dst") d = v; else if (k == "sport") sp = v + 0; else if (k == "dport") dp = v + 0; else if (k == "bytes") obs = v
+			} else if (n == 2 && k == "bytes") rbs = v
+		}
+		if (obs == "" || s == "") next
+		if (l3 == "ipv4" && priv(s) && priv(d)) next
+		if (l3 == "ipv6" && (s ~ /^(fe80:|ff|::1$)/ || d ~ /^(fe80:|ff|::1$)/)) next
+		key = proto "|" s "|" sp "|" d "|" dp
+		print key, obs, rbs > out
+		ob = obs + 0; rb = rbs + 0
+		isnew = !(key in po)
+		dob = ob - (isnew ? 0 : po[key] + 0); drb = rb - (isnew ? 0 : pr[key] + 0)
+		if (dob < 0) dob = ob
+		if (drb < 0) drb = rb
+		if (seed || (dob == 0 && drb == 0)) next
+		if (c >= max) { trunc++; next }
+		printf "%s[\"%s\",\"%s\",%d,\"%s\",%d,%.0f,\"%s\",%.0f,%d]", (c++ ? "," : ""), proto, s, sp, d, dp, dob, rs, drb, isnew
+	}
+	END { close(out); printf "],\"truncated\":%d}\n", trunc + 0 }'
+	[ -f "$STATE/ct.new" ] && mv "$STATE/ct.new" "$STATE/ct.state"
+}
+
+detect_modem() {
+	m="$MODEM_METHOD"
+	if [ "$m" = auto ]; then
+		if command -v mmcli >/dev/null && mmcli -L 2>/dev/null | grep -q /Modem/; then m=mmcli
+		elif command -v uqmi >/dev/null && [ -c "$QMI_DEVICE" ]; then m=uqmi
+		elif command -v sms_tool >/dev/null && [ -c "$AT_DEVICE" ]; then m=at
+		else m=none; fi
+	fi
+	echo "$m"
+}
+
+at_cmd() {
+	sms_tool -d "$AT_DEVICE" at "$1" 2>/dev/null | json_str
+}
+
+do_modem() {
+	m=$(detect_modem)
+	case "$m" in
+		mmcli)
+			[ -f "$STATE/mm.signal" ] || { mmcli -m any --signal-setup=30 >/dev/null 2>&1; touch "$STATE/mm.signal"; }
+			printf '{"method":"mmcli","modem":%s,"signal":%s}\n' \
+				"$(json_or_null "$(mmcli -m any -J 2>/dev/null)")" "$(json_or_null "$(mmcli -m any --signal-get -J 2>/dev/null)")"
+			;;
+		uqmi)
+			q="uqmi -s -d $QMI_DEVICE -t 3000"
+			printf '{"method":"uqmi","signal":%s,"serving":%s,"system":%s}\n' \
+				"$(json_or_null "$($q --get-signal-info 2>/dev/null)")" \
+				"$(json_or_null "$($q --get-serving-system 2>/dev/null)")" \
+				"$(json_or_null "$($q --get-system-info 2>/dev/null)")"
+			;;
+		at)
+			printf '{"method":"at","csq":"%s","cesq":"%s","cops":"%s","qeng":"%s","qnwinfo":"%s","hcsq":"%s"}\n' \
+				"$(at_cmd 'AT+CSQ')" "$(at_cmd 'AT+CESQ')" "$(at_cmd 'AT+COPS?')" \
+				"$(at_cmd 'AT+QENG="servingcell"')" "$(at_cmd 'AT+QNWINFO')" "$(at_cmd 'AT^HCSQ?')"
+			;;
+		*)
+			echo '{"method":"none"}'
+			;;
+	esac
+}
+
+do_sms() {
+	cmd="$SMS_CMD"
+	if [ -z "$cmd" ]; then
+		command -v sms_tool >/dev/null && [ -c "$AT_DEVICE" ] || { echo '{"msg":[]}'; return; }
+		cmd="sms_tool -d $AT_DEVICE -j recv"
+	fi
+	out=$($cmd 2>/dev/null)
+	case "$out" in
+		\{*) printf '%s\n' "$out" ;;
+		\[*) printf '{"msg":%s}\n' "$out" ;;
+		*) echo '{"msg":[]}' ;;
+	esac
+}
+
+do_action() {
+	read -r input
+	name=$(echo "$input" | jsonfilter -e '@.name' 2>/dev/null)
+	ifaces=$(echo "$input" | jsonfilter -e '@.ifaces' 2>/dev/null | tr -cd 'a-zA-Z0-9_. -')
+	[ -n "$ifaces" ] || ifaces=wan
+	case "$name" in
+		reboot)
+			logger -t homenet "router reboot requested"
+			( sleep 3; reboot ) </dev/null >/dev/null 2>&1 &
+			;;
+		restart_wan)
+			logger -t homenet "restarting WAN: $ifaces"
+			( for i in $ifaces; do ifup "$i"; done ) </dev/null >/dev/null 2>&1 &
+			;;
+		modem_reset)
+			logger -t homenet "modem reset requested"
+			m=$(detect_modem)
+			(
+				case "$m" in
+					mmcli) mmcli -m any -r ;;
+					uqmi) uqmi -s -d "$QMI_DEVICE" --set-device-operating-mode reset ;;
+					at) sms_tool -d "$AT_DEVICE" at 'AT+CFUN=1,1' ;;
+				esac
+				sleep 25
+				for i in $ifaces; do ifup "$i"; done
+			) </dev/null >/dev/null 2>&1 &
+			;;
+		*)
+			echo '{"ok":false,"error":"unknown action"}'
+			return
+			;;
+	esac
+	echo '{"ok":true}'
+}
+
+case "$1" in
+	list)
+		echo '{"info":{},"hosts":{},"wifi":{},"conntrack":{},"modem":{},"sms":{},"action":{"name":"str","ifaces":"str"}}'
+		;;
+	call)
+		case "$2" in
+			info) do_info ;;
+			hosts) do_hosts ;;
+			wifi) do_wifi ;;
+			conntrack) do_conntrack ;;
+			modem) do_modem ;;
+			sms) do_sms ;;
+			action) do_action ;;
+			*) echo '{"error":"unknown method"}' ;;
+		esac
+		;;
+esac

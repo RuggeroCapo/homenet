@@ -1,0 +1,7 @@
+{
+	"homenet": {
+		"description": "HomeNet collector (read-only status + router actions)",
+		"read": { "ubus": { "homenet": [ "*" ] } },
+		"write": { "ubus": { "homenet": [ "*" ] } }
+	}
+}

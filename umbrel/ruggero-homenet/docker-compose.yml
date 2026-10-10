@@ -1,0 +1,26 @@
+version: "3.7"
+
+services:
+  app_proxy:
+    environment:
+      # <app-id>_<service>_1
+      APP_HOST: ruggero-homenet_server_1
+      APP_PORT: 3000
+
+  server:
+    image: ghcr.io/OWNER/homenet:0.1.0
+    user: "1000:1000"
+    init: true
+    restart: on-failure
+    stop_grace_period: 20s
+    mem_limit: 256m
+    environment:
+      DATA_DIR: /data
+      RETENTION_DAYS: "15"
+      # AdGuard Home on Umbrel runs on the host network, web UI on port 8095
+      ADGUARD_URL: http://host.docker.internal:8095
+      ROUTER_URL: http://192.168.1.1
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ${APP_DATA_DIR}/data:/data
