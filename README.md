@@ -2,6 +2,8 @@
 
 Self-hosted network watchdog and traffic analytics for Umbrel + OpenWrt + AdGuard Home.
 
+![Overview](docs/overview.png)
+
 - **Watchdog**: internet reachability and latency, WAN status (LTE / Wi-Fi / Ethernet), LTE signal (RSRP / RSRQ / SINR), Wi-Fi clients, router SMS. Manual or automatic recovery: restart WAN → reset modem → reboot router → (optional) power-cycle through a Home Assistant smart plug.
 - **Traffic analytics**: bytes per device and per destination (from router conntrack), domains per device (from AdGuard Home), country and network owner (ASN) of every destination, a world map, and alerts when a device sends data to watch-listed countries or networks (default: CN, RU, KP, IR, HK, plus Alibaba / Tencent / Huawei / … networks anywhere).
 
