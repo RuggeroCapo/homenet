@@ -5,6 +5,7 @@ import { addEventOnce, countryName, fmtBytes } from '../events.js';
 import { lookup } from '../geo.js';
 import type { FlowRow } from '../router.js';
 import { getSettings } from '../settings.js';
+import { state } from '../state.js';
 
 const PROTO: Record<string, number> = { tcp: 6, udp: 17, icmp: 1, icmpv6: 58, sctp: 132, gre: 47 };
 
@@ -43,7 +44,8 @@ export const MAX_DEST_PER_HOUR = 400;
 const destSeen = new Map<string, Set<string>>();
 let destHour = 0;
 
-export function ingestFlows(rows: FlowRow[], at = Math.floor(Date.now() / 1000)) {
+export function ingestFlows(rows: FlowRow[], at = Math.floor(Date.now() / 1000), windowSecs = 0) {
+  const window = new Map<number, { up: number; down: number }>();
   const hour = at - (at % 3600);
   const five = at - (at % 300);
   if (hour !== destHour) { destSeen.clear(); destHour = hour; }
@@ -79,10 +81,17 @@ export function ingestFlows(rows: FlowRow[], at = Math.floor(Date.now() / 1000))
     }
     f.up += up; f.down += down; f.conns += isNew ? 1 : 0;
     if (f.domain === null && ip === remote) f.domain = ipDomain.get(remote) ?? null;
+    const w = window.get(dev) ?? { up: 0, down: 0 };
+    w.up += up; w.down += down;
+    window.set(dev, w);
     const tk = `${five}|${dev}`;
     let t = traffic.get(tk);
     if (!t) traffic.set(tk, (t = { ts: five, dev, up: 0, down: 0 }));
     t.up += up; t.down += down;
+  }
+  if (windowSecs > 0) {
+    state.deviceRates.clear();
+    for (const [dev, w] of window) state.deviceRates.set(dev, { up: (w.up * 8) / windowSecs, down: (w.down * 8) / windowSecs, ts: at });
   }
 }
 

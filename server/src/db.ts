@@ -69,6 +69,12 @@ CREATE TABLE IF NOT EXISTS samples (
   signal TEXT
 );
 
+-- bytes per WAN interface per local day (kept 400 days, used for monthly LTE usage)
+CREATE TABLE IF NOT EXISTS wan_daily (
+  day TEXT NOT NULL, iface TEXT NOT NULL, kind TEXT NOT NULL, rx INTEGER NOT NULL, tx INTEGER NOT NULL,
+  PRIMARY KEY (day, iface)
+) WITHOUT ROWID;
+
 CREATE TABLE IF NOT EXISTS events (
   id INTEGER PRIMARY KEY,
   ts INTEGER NOT NULL,
@@ -115,6 +121,7 @@ export function prune(retentionDays: number) {
     db.prepare('DELETE FROM samples WHERE ts < ?').run(cutoff);
     db.prepare('DELETE FROM events WHERE ts < ?').run(cutoff);
     db.prepare('DELETE FROM ip_domain WHERE ts < ?').run(cutoff);
+    db.prepare('DELETE FROM wan_daily WHERE day < ?').run(localDay(Date.now() / 1000 - 400 * 86400));
     db.prepare('DELETE FROM kv WHERE key LIKE \'seen:%\' AND ts < ?').run(cutoff);
     // pseudo devices (no MAC) that have not been seen for the whole window
     db.prepare("DELETE FROM devices WHERE mac LIKE 'ip:%' AND last_seen < ?").run(cutoff);
@@ -127,6 +134,12 @@ export function prune(retentionDays: number) {
   domainCache.clear();
   db.pragma('incremental_vacuum');
   db.pragma('wal_checkpoint(TRUNCATE)');
+}
+
+/** YYYY-MM-DD in the container's local time zone (set TZ to get your local days). */
+export function localDay(ts: number) {
+  const d = new Date(ts * 1000);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
 export function dbSizeBytes(): number {

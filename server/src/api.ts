@@ -3,7 +3,7 @@ import { AdGuardClient } from './adguard.js';
 import { categoryOf } from './categories.js';
 import type { RouterCollector } from './collectors/router.js';
 import { runAction } from './collectors/watchdog.js';
-import { db, dbSizeBytes } from './db.js';
+import { db, dbSizeBytes, localDay } from './db.js';
 import { displayName, getDevice, type DeviceRow } from './devices.js';
 import { geoStatus } from './geo.js';
 import { UbusClient } from './router.js';
@@ -61,8 +61,42 @@ function allDevices() {
   return db.prepare('SELECT * FROM devices').all() as DeviceRow[];
 }
 
+function liveRate(id: number) {
+  const r = state.deviceRates.get(id);
+  return r && Date.now() / 1000 - r.ts < 60 ? { rateUp: r.up, rateDown: r.down } : { rateUp: 0, rateDown: 0 };
+}
+
+/** Usage in the current billing cycle (LTE interfaces only when present, else all WANs). */
+export function dataUsage() {
+  const plan = getSettings().dataPlan;
+  const now = new Date();
+  const start = new Date(now.getFullYear(), now.getMonth(), plan.cycleDay);
+  if (now.getDate() < plan.cycleDay) start.setMonth(start.getMonth() - 1);
+  const end = new Date(start);
+  end.setMonth(end.getMonth() + 1);
+  const ts = (d: Date) => Math.floor(d.getTime() / 1000);
+  const hasLte = (db.prepare("SELECT 1 FROM wan_daily WHERE kind = 'lte' LIMIT 1").get()) !== undefined;
+  const kindFilter = hasLte ? "AND kind = 'lte'" : '';
+  const tot = db.prepare(`SELECT COALESCE(SUM(rx), 0) AS rx, COALESCE(SUM(tx), 0) AS tx FROM wan_daily WHERE day >= ? AND day < ? ${kindFilter}`)
+    .get(localDay(ts(start)), localDay(ts(end))) as { rx: number; tx: number };
+  const daily = db.prepare(`SELECT day, SUM(rx) AS rx, SUM(tx) AS tx FROM wan_daily WHERE day >= ? ${kindFilter} GROUP BY day ORDER BY day`)
+    .all(localDay(ts(now) - 30 * 86400)) as Array<{ day: string; rx: number; tx: number }>;
+  const elapsed = Math.max(0.25, (now.getTime() - start.getTime()) / 86400_000);
+  const days = (end.getTime() - start.getTime()) / 86400_000;
+  const used = tot.rx + tot.tx;
+  return {
+    kind: hasLte ? 'lte' : 'all',
+    start: ts(start), end: ts(end),
+    rx: tot.rx, tx: tot.tx, used,
+    quota: plan.quotaGb > 0 ? plan.quotaGb * 1e9 : null,
+    projected: (used / elapsed) * days,
+    daily,
+  };
+}
+
 function devicePublic(d: DeviceRow) {
   return {
+    ...liveRate(d.id),
     id: d.id, name: displayName(d), hostname: d.hostname, alias: d.alias, kind: d.kind ?? 'unknown',
     ip: d.ip ?? (d.mac.startsWith('ip:') ? d.mac.slice(3) : null), mac: d.mac.startsWith('ip:') ? null : d.mac,
     online: !!d.online, lastSeen: d.last_seen, firstSeen: d.first_seen, notifyOffline: !!d.notify_offline,
@@ -194,6 +228,7 @@ export function registerApi(app: FastifyInstance, getRouter: () => RouterCollect
       configured: { router: routerConfigured(), adguard: adguardConfigured() },
       wan: state.router?.wan ?? [],
       modem: state.modem,
+      usage: dataUsage(),
       uplinkWifi: state.wifi.find((r) => r.mode === 'Client') ?? null,
       traffic: {
         rx: live?.[1] ?? null, tx: live?.[2] ?? null,
@@ -383,6 +418,7 @@ export function registerApi(app: FastifyInstance, getRouter: () => RouterCollect
           .sort((a, b) => (b.signal ?? -100) - (a.signal ?? -100)),
       })),
       sms: state.sms,
+      usage: dataUsage(),
       series: samplesSeries(from, to, secs),
       live: state.live,
       summary: avail,

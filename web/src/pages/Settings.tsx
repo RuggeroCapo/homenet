@@ -13,6 +13,7 @@ interface SettingsData {
   probeTargets: string[];
   watchdog: { enabled: boolean; downMinutes: number; firstAction: string; escalateMinutes: number; maxRebootsPer6h: number; ha: { enabled: boolean; entityId: string } };
   homeassistant: { url: string; token: string; has_token?: boolean };
+  dataPlan: { cycleDay: number; quotaGb: number };
   notify: {
     ntfy: { enabled: boolean; url: string; token: string; has_token?: boolean };
     telegram: { enabled: boolean; botToken: string; chatId: string; has_botToken?: boolean };
@@ -215,6 +216,14 @@ export function Settings() {
               </Field>
               <Field label="Paese di casa (per la mappa)">
                 <input className="input" value={s.homeCountry} maxLength={2} onChange={(e) => setS({ ...s, homeCountry: e.target.value.toUpperCase() })} />
+              </Field>
+            </div>
+            <div className="grid g-2" style={{ gap: 14 }}>
+              <Field label="Piano dati: giorno di rinnovo" hint="Giorno del mese in cui riparte il conteggio">
+                <input className="input" type="number" min={1} max={28} value={s.dataPlan.cycleDay} onChange={(e) => set('dataPlan', { cycleDay: Number(e.target.value) })} />
+              </Field>
+              <Field label="Giga inclusi al mese" hint="0 = illimitato / non mostrare la soglia">
+                <input className="input" type="number" min={0} value={s.dataPlan.quotaGb} onChange={(e) => set('dataPlan', { quotaGb: Number(e.target.value) })} />
               </Field>
             </div>
             {status && (

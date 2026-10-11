@@ -14,6 +14,8 @@ export const state = {
   internet: { online: true, since: Math.floor(Date.now() / 1000), latency: null as number | null, loss: 0 },
   collectors: {} as Record<string, CollectorStatus>,
   conntrackTruncated: 0,
+  /** live per-device rate from the last conntrack window (bps) */
+  deviceRates: new Map<number, { up: number; down: number; ts: number }>(),
   watchdog: { step: 0, lastAction: null as null | { ts: number; action: string } },
 };
 

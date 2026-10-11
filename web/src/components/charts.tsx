@@ -214,3 +214,50 @@ export function Gauge({ value, label, children }: { value: number | null | undef
     </div>
   );
 }
+
+/** Single-series bar chart with per-bar hover tooltip (4px rounded tops, 2px gaps). */
+export function BarChart({ labels, values, color = 'var(--s1)', height = 140, format, tooltipLabel, highlightLast }: {
+  labels: string[]; values: number[]; color?: string; height?: number; format: (v: number) => string; tooltipLabel?: (i: number) => string; highlightLast?: boolean;
+}) {
+  const [ref, w] = useWidth<HTMLDivElement>();
+  const [hover, setHover] = useState<number | null>(null);
+  const padB = 20, padT = 6;
+  const max = Math.max(1, ...values);
+  const n = values.length;
+  const bw = n ? Math.max(2, w / n - 2) : 0;
+  const ih = height - padB - padT;
+  return (
+    <div ref={ref} className="chart" style={{ height }} onMouseLeave={() => setHover(null)}>
+      {w > 0 && (
+        <svg width={w} height={height} role="img" aria-label="Grafico a barre">
+          <line x1={0} x2={w} y1={padT + ih + 0.5} y2={padT + ih + 0.5} stroke="var(--grid)" />
+          {values.map((v, i) => {
+            const h = Math.max(v > 0 ? 2 : 0, (v / max) * ih);
+            const x = i * (w / n) + 1;
+            const last = highlightLast && i === n - 1;
+            return (
+              <g key={i} onMouseEnter={() => setHover(i)}>
+                <rect x={x - 1} y={0} width={w / n} height={height} fill="transparent" />
+                <path d={roundedTop(x, padT + ih - h, bw, h, Math.min(4, bw / 2, h))} fill={color} opacity={hover === null || hover === i ? (last ? 0.55 : 1) : 0.45} />
+              </g>
+            );
+          })}
+          {labels.map((l, i) => (i % Math.ceil(n / Math.max(1, Math.floor(w / 46))) === 0 ? (
+            <text key={i} x={i * (w / n) + bw / 2 + 1} y={height - 4} textAnchor="middle" style={{ fill: 'var(--text-3)', fontSize: 11 }}>{l}</text>
+          ) : null))}
+        </svg>
+      )}
+      {hover !== null && w > 0 && (
+        <div className="tooltip" style={{ left: Math.min(Math.max(hover * (w / n) - 40, 0), w - 150), top: 0 }}>
+          <div className="t">{tooltipLabel ? tooltipLabel(hover) : labels[hover]}</div>
+          <div className="v"><i style={{ background: color }} />{format(values[hover])}</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function roundedTop(x: number, y: number, w: number, h: number, r: number) {
+  if (h <= 0) return '';
+  return `M${x},${y + h} L${x},${y + r} Q${x},${y} ${x + r},${y} L${x + w - r},${y} Q${x + w},${y} ${x + w},${y + r} L${x + w},${y + h} Z`;
+}

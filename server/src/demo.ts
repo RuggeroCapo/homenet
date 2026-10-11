@@ -1,7 +1,7 @@
 // DEMO=1: simulated OpenWrt router + AdGuard Home, plus 7 days of back-filled history.
 // Lets you develop the UI without touching the real network.
 import type { AdGuardApi, QueryLogEntry } from './adguard.js';
-import { db, domainId } from './db.js';
+import { db, domainId, localDay } from './db.js';
 import { guessKind } from './devices.js';
 import { addEvent } from './events.js';
 import { registerDemoGeo } from './geo.js';
@@ -269,6 +269,12 @@ export function backfillDemo() {
       }
     }
   })();
+  const insW = db.prepare('INSERT OR REPLACE INTO wan_daily (day, iface, kind, rx, tx) VALUES (?, ?, ?, ?, ?)');
+  for (let d = 40; d >= 1; d--) {
+    const day = localDay(now - d * 86400);
+    const weekend = [0, 6].includes(new Date((now - d * 86400) * 1000).getDay());
+    insW.run(day, 'modem_1_1_2', 'lte', Math.round(jitter(weekend ? 7.5e9 : 4.8e9, 0.3)), Math.round(jitter(9e8, 0.3)));
+  }
   const esp = (db.prepare('SELECT id FROM devices WHERE mac = ?').get('a0:b7:65:aa:00:73') as { id: number }).id;
   addEvent('internet_down', 'error', 'Internet non raggiungibile', 'Il router risponde, la connessione esterna no', null, outage[0]);
   addEvent('action', 'warning', 'Riavvio connessione WAN', 'Avviato automaticamente dal watchdog', null, outage[0] + 300);

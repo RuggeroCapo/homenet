@@ -1,5 +1,5 @@
 // Polls the OpenWrt plugin: status/throughput, hosts, Wi-Fi, conntrack deltas, modem and SMS.
-import { kvGet, kvSet } from '../db.js';
+import { db, kvGet, kvSet, localDay } from '../db.js';
 import { isLan, markActive, setLanSubnets, setWifi, upsertHost } from '../devices.js';
 import { addEvent } from '../events.js';
 import { parseInfo, parseModem, parseSms, parseWifi, type RouterApi, type WanStatus } from '../router.js';
@@ -15,6 +15,9 @@ export class RouterCollector {
   private prev: { rx: number; tx: number; t: number } | null = null;
   private minute = { rxBits: 0, txBits: 0, secs: 0 };
   private wanUp = new Map<string, boolean>();
+  private wanPrev = new Map<string, [number, number]>();
+  private wanAcc = new Map<string, { day: string; iface: string; kind: string; rx: number; tx: number }>();
+  private lastConntrack = 0;
 
   constructor(private api: RouterApi) {}
 
@@ -43,13 +46,26 @@ export class RouterCollector {
 
   /** Average WAN throughput over the last minute (bps), then resets the accumulator. */
   takeMinute() {
+    this.flushWanUsage();
     const m = this.minute;
     this.minute = { rxBits: 0, txBits: 0, secs: 0 };
     return m.secs ? { rx: m.rxBits / m.secs, tx: m.txBits / m.secs } : { rx: null, tx: null };
   }
 
+  private lastRaw: Awaited<ReturnType<RouterApi['info']>> | null = null;
+
+  private flushWanUsage() {
+    if (!this.wanAcc.size) return;
+    const up = db.prepare(`INSERT INTO wan_daily (day, iface, kind, rx, tx) VALUES (@day, @iface, @kind, @rx, @tx)
+      ON CONFLICT(day, iface) DO UPDATE SET rx = rx + excluded.rx, tx = tx + excluded.tx, kind = excluded.kind`);
+    const rows = [...this.wanAcc.values()];
+    this.wanAcc.clear();
+    db.transaction(() => { for (const r of rows) up.run(r); })();
+  }
+
   private async info() {
-    const info = parseInfo(await this.api.info());
+    this.lastRaw = await this.api.info();
+    const info = parseInfo(this.lastRaw);
     state.router = info;
     state.routerOk = true;
     setLanSubnets(info.lan4, info.lan6);
@@ -77,7 +93,19 @@ export class RouterCollector {
       if (prevBoot === null || Math.abs(boot - prevBoot) > 120) kvSet('router_boot', boot);
     }
 
+    const raw = this.lastRaw;
     for (const w of info.wan) {
+      const c = w.up && w.device ? raw?.netdev?.[w.device] : undefined;
+      if (c) {
+        const prev = this.wanPrev.get(w.iface);
+        if (prev && c[0] >= prev[0] && c[1] >= prev[1]) {
+          const key = `${localDay(now)}|${w.iface}`;
+          const a = this.wanAcc.get(key) ?? { day: localDay(now), iface: w.iface, kind: w.kind, rx: 0, tx: 0 };
+          a.rx += c[0] - prev[0]; a.tx += c[1] - prev[1];
+          this.wanAcc.set(key, a);
+        }
+        this.wanPrev.set(w.iface, [c[0], c[1]]);
+      } else this.wanPrev.delete(w.iface);
       const before = this.wanUp.get(w.iface);
       if (before !== undefined && before !== w.up) {
         addEvent(w.up ? 'wan_up' : 'wan_down', w.up ? 'success' : 'error',
@@ -110,7 +138,10 @@ export class RouterCollector {
     const raw = await this.api.conntrack();
     if (raw.error) throw new Error(raw.error);
     state.conntrackTruncated = raw.truncated ?? 0;
-    if (!raw.seed) ingestFlows(raw.flows ?? []);
+    const now = Date.now() / 1000;
+    const windowSecs = this.lastConntrack ? now - this.lastConntrack : 0;
+    this.lastConntrack = now;
+    if (!raw.seed) ingestFlows(raw.flows ?? [], Math.floor(now), windowSecs > 0 && windowSecs < 120 ? windowSecs : 0);
   }
 
   private async modem() {

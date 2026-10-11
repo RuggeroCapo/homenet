@@ -4,7 +4,8 @@ import { PageHead, type PageProps } from '../App';
 import { Gauge, TimeChart } from '../components/charts';
 import { Card, CardHead, DeviceIcon, Empty, EventList, RangePicker, Skeleton, Status, useUi } from '../components/ui';
 import { api, fmtBps, fmtDate, fmtDuration, fmtPct, seriesColor, usePoll } from '../lib';
-import type { EventRow, Modem, SamplePoint, Wan, WifiRadio } from '../types';
+import type { DataUsage, EventRow, Modem, SamplePoint, Wan, WifiRadio } from '../types';
+import { UsageCard } from '../components/UsageCard';
 import { signalTone } from './Devices';
 
 interface MonitorData {
@@ -15,6 +16,7 @@ interface MonitorData {
   modem: Modem | null;
   wifi: WifiRadio[];
   sms: Array<{ sender: string; timestamp: string; content: string }>;
+  usage: DataUsage;
   series: { bucket: number; points: SamplePoint[] };
   summary: { a: number | null; lat: number | null; loss: number | null; n: number };
   watchdog: { enabled: boolean; downMinutes: number; escalateMinutes: number; firstAction: string; maxRebootsPer6h: number; ha: { enabled: boolean }; state: { step: number; lastAction: { ts: number; action: string } | null } };
@@ -216,6 +218,7 @@ export function Monitor({ range, setRange }: PageProps) {
           </div>
           <div className="stack">
             <Actions data={data} reload={reload} />
+            {data.router && <UsageCard u={data.usage} />}
             <Card>
               <CardHead icon={MessageSquare} title="SMS del router" sub="Letti dal modem tramite sms_tool" />
               {data.sms.length === 0 ? <Empty icon={MessageSquare}>Nessun SMS</Empty> : data.sms.slice(0, 8).map((s, i) => (

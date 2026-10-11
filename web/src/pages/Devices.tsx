@@ -3,7 +3,7 @@ import { useMemo, useState } from 'react';
 import { PageHead, type PageProps } from '../App';
 import { Sparkline } from '../components/charts';
 import { Card, DeviceIcon, Empty, KINDS, RangePicker, Seg, Skeleton, Status } from '../components/ui';
-import { countryName, fmtAgo, fmtBytes, fmtNum, seriesColor, usePoll } from '../lib';
+import { countryName, fmtAgo, fmtBps, fmtBytes, fmtNum, seriesColor, usePoll } from '../lib';
 import type { DeviceWithTraffic } from '../types';
 
 export function signalTone(s: number | null | undefined): 'ok' | 'warn' | 'err' | 'off' {
@@ -38,7 +38,7 @@ export function Devices({ range, setRange }: PageProps) {
             <table className="tbl">
               <thead>
                 <tr>
-                  <th>Dispositivo</th><th>Stato</th><th>Wi-Fi</th><th className="r">Download</th><th className="r">Upload</th>
+                  <th>Dispositivo</th><th>Stato</th><th>Wi-Fi</th><th className="r">Ora</th><th className="r">Download</th><th className="r">Upload</th>
                   <th style={{ width: 160 }}>Andamento</th><th className="r">Query DNS</th><th>Destinazioni</th>
                 </tr>
               </thead>
@@ -56,6 +56,7 @@ export function Devices({ range, setRange }: PageProps) {
                     </td>
                     <td>{d.online ? <Status tone="ok">Online</Status> : <Status tone="off">{fmtAgo(d.lastSeen)}</Status>}</td>
                     <td>{d.wifiSignal !== null ? <Status tone={signalTone(d.wifiSignal)}><Wifi size={14} /> {d.wifiSignal} dBm</Status> : <span className="faint">{d.online ? 'Cavo' : '—'}</span>}</td>
+                    <td className="r num meta" style={{ whiteSpace: 'nowrap' }}>{d.rateDown + d.rateUp > 8000 ? <>↓ {fmtBps(d.rateDown)}<br />↑ {fmtBps(d.rateUp)}</> : '—'}</td>
                     <td className="r num">{fmtBytes(d.down)}</td>
                     <td className="r num">{fmtBytes(d.up)}</td>
                     <td><Sparkline values={d.spark} color={seriesColor(d.id)} height={32} label={`Traffico di ${d.name}`} /></td>

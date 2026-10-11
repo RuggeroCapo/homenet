@@ -18,6 +18,8 @@ export interface Settings {
     ha: { enabled: boolean; entityId: string };
   };
   homeassistant: { url: string; token: string };
+  /** mobile data plan: billing cycle start day and optional monthly allowance */
+  dataPlan: { cycleDay: number; quotaGb: number };
   notify: {
     ntfy: { enabled: boolean; url: string; token: string };
     telegram: { enabled: boolean; botToken: string; chatId: string };
@@ -47,6 +49,7 @@ function defaults(): Settings {
       maxRebootsPer6h: 2,
       ha: { enabled: false, entityId: 'switch.router' },
     },
+    dataPlan: { cycleDay: 1, quotaGb: 0 },
     homeassistant: { url: env.HA_URL ?? 'http://homeassistant.local:8123', token: env.HA_TOKEN ?? '' },
     notify: {
       ntfy: { enabled: false, url: 'https://ntfy.sh/homenet-change-me', token: '' },
@@ -129,6 +132,8 @@ export function updateSettings(patch: Partial<Settings>) {
     if (getPath(patch, path) === '') setPath(next, path, getPath(current, path));
   }
   next.retentionDays = Math.min(60, Math.max(1, Math.round(next.retentionDays)));
+  next.dataPlan.cycleDay = Math.min(28, Math.max(1, Math.round(next.dataPlan.cycleDay)));
+  next.dataPlan.quotaGb = Math.max(0, Number(next.dataPlan.quotaGb) || 0);
   next.watchlist.countries = next.watchlist.countries.map((c) => c.trim().toUpperCase()).filter(Boolean);
   next.watchlist.asnKeywords = next.watchlist.asnKeywords.map((c) => c.trim().toLowerCase()).filter(Boolean);
   db.prepare("INSERT INTO settings (key, value) VALUES ('settings', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")

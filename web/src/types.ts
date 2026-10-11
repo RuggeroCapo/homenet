@@ -2,7 +2,9 @@ export interface Device {
   id: number; name: string; hostname: string | null; alias: string | null; kind: string;
   ip: string | null; mac: string | null; online: boolean; lastSeen: number; firstSeen: number;
   notifyOffline: boolean; wifiSignal: number | null; wifiIface: string | null;
+  rateUp: number; rateDown: number;
 }
+export interface DataUsage { kind: 'lte' | 'all'; start: number; end: number; rx: number; tx: number; used: number; quota: number | null; projected: number; daily: Array<{ day: string; rx: number; tx: number }> }
 export interface DeviceWithTraffic extends Device {
   up: number; down: number; total: number; spark: number[];
   queries?: number; blocked?: number; countries?: number;
@@ -22,6 +24,7 @@ export interface Overview {
   configured: { router: boolean; adguard: boolean };
   wan: Wan[];
   modem: Modem | null;
+  usage: DataUsage;
   uplinkWifi: WifiRadio | null;
   traffic: { rx: number | null; tx: number | null; series: Array<[number, number | null, number | null, number | null]>; live: Array<[number, number, number]>; totalDown: number; totalUp: number };
   devices: DeviceWithTraffic[];

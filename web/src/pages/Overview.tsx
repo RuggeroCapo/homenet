@@ -52,13 +52,18 @@ function InternetCard({ d }: { d: OverviewData }) {
           </div>
         ))}
       </div>
-      {(primary || d.modem) && (
+      {(primary || d.modem || d.usage.used > 0) && (
         <div className="hstack wrap" style={{ marginTop: 18, gap: 8 }}>
           {d.wan.map((w) => (
             <span key={w.iface} className={`pill ${w.up ? '' : 'err'}`} title={`Interfaccia ${w.iface}`}>
               {w.kind === 'wifi' ? <Wifi /> : <Signal />}{WAN_LABEL[w.kind]} {w.up ? (w.isDefault ? '· attiva' : '· pronta') : '· giù'}
             </span>
           ))}
+          {d.usage.used > 0 && (
+            <a href="#/monitor" className={`pill ${d.usage.quota && d.usage.projected > d.usage.quota ? 'warn' : ''}`}>
+              Dati {d.usage.kind === 'lte' ? 'LTE' : 'WAN'}: {fmtBytes(d.usage.used, 0)}{d.usage.quota ? ` di ${fmtBytes(d.usage.quota, 0)}` : ' nel ciclo'}
+            </a>
+          )}
           {d.modem && (
             <a href="#/monitor" className="pill">
               <Signal />{d.modem.operator ?? 'LTE'} {d.modem.tech ?? ''} · segnale {d.modem.quality ?? '—'}%{d.modem.rsrp !== undefined ? ` (${d.modem.rsrp} dBm)` : ''}
@@ -115,7 +120,10 @@ function DevicesCard({ d }: { d: OverviewData }) {
                 <div className="name">{x.name}</div>
                 <div className="meta num">{x.ip}</div>
               </div>
-              <div className="num" style={{ fontWeight: 600 }}>{fmtBytes(x[metric])}</div>
+              <div>
+                <div className="num" style={{ fontWeight: 600 }}>{fmtBytes(x[metric])}</div>
+                {x.rateDown + x.rateUp > 8000 && <div className="meta num">{fmtBps(metric === 'up' ? x.rateUp : metric === 'down' ? x.rateDown : x.rateDown + x.rateUp)} ora</div>}
+              </div>
               <Sparkline values={x.spark} color={seriesColor(x.id)} height={40} label={`Traffico di ${x.name}`} />
             </a>
           ))}

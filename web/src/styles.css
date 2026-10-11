@@ -204,6 +204,7 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 14px; }
 .tbl tbody tr:hover { background: rgba(255, 255, 255, 0.035); }
 .tbl tr.click { cursor: pointer; }
 .tbl .r { text-align: right; }
+.tbl td.num, .tbl td .status, .tbl td.r { white-space: nowrap; }
 .bar { height: 6px; border-radius: 999px; background: rgba(255, 255, 255, 0.08); overflow: hidden; min-width: 60px; }
 .bar > i { display: block; height: 100%; border-radius: 999px; }
 
