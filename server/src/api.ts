@@ -265,6 +265,10 @@ export function registerApi(app: FastifyInstance, getRouter: () => RouterCollect
     const avail = db.prepare('SELECT AVG(online) AS a FROM samples WHERE ts >= ?').get(from) as { a: number | null };
     const geoTop = db.prepare(`SELECT cc, SUM(up) AS up, SUM(down) AS down FROM ${ru.geo} WHERE ts >= ? AND cc != '' GROUP BY cc ORDER BY SUM(up) + SUM(down) DESC LIMIT 6`).all(ru.start);
     const flagged = db.prepare(`SELECT COUNT(DISTINCT f.device_id) AS n, SUM(f.up) AS up FROM ${ru.geo} f WHERE f.ts >= ? AND ${watchClause(s)}`).get(ru.start) as { n: number; up: number | null };
+    const flaggedList = (db.prepare(`SELECT f.device_id AS id, SUM(f.up) AS up, GROUP_CONCAT(DISTINCT f.cc) AS ccs FROM ${ru.geo} f WHERE f.ts >= ? AND ${watchClause(s)}
+      GROUP BY f.device_id ORDER BY SUM(f.up) DESC LIMIT 5`).all(ru.start) as Array<{ id: number; up: number; ccs: string | null }>)
+      .filter((r) => byId.has(r.id))
+      .map((r) => { const d = byId.get(r.id)!; const p = devicePublic(d); return { id: r.id, name: p.name, kind: p.kind, up: r.up, countries: r.ccs?.split(',').filter(Boolean) ?? [] }; });
     const live = state.live.at(-1);
 
     return {
@@ -286,7 +290,7 @@ export function registerApi(app: FastifyInstance, getRouter: () => RouterCollect
       dns: { queries: totalQ.q ?? 0, blocked: totalQ.b ?? 0 },
       services: services.map((x) => ({ ...x, category: categoryOf(x.base), pct: totalQ.q ? x.queries / totalQ.q : 0 })),
       map: { devices: mapDevices, services: mapServices, links, otherServices: Math.max(0, (db.prepare(`SELECT COUNT(DISTINCT base_id) AS n FROM ${ru.base} WHERE ts >= ? AND queries > 0`).get(ru.start) as { n: number }).n - mapServices.length) },
-      geo: { top: geoTop, flaggedDevices: flagged.n ?? 0, flaggedUp: flagged.up ?? 0, homeCountry: s.homeCountry },
+      geo: { top: geoTop, flaggedDevices: flagged.n ?? 0, flaggedUp: flagged.up ?? 0, flagged: flaggedList, homeCountry: s.homeCountry },
       events: recentEvents(6),
     };
   }));

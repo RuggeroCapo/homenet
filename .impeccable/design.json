@@ -1,0 +1,413 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-10-11T10:04:12.210965+00:00",
+  "title": "Design System: HomeNet",
+  "extensions": {
+    "colorMeta": {
+      "dusk-violet": {
+        "role": "primary",
+        "displayName": "Dusk Violet",
+        "canonical": "oklch(0.7 0.16 268)",
+        "tonalRamp": [
+          "oklch(0.15 0.095 268)",
+          "oklch(0.26 0.111 268)",
+          "oklch(0.37 0.127 268)",
+          "oklch(0.48 0.143 268)",
+          "oklch(0.60 0.160 268)",
+          "oklch(0.72 0.143 268)",
+          "oklch(0.84 0.125 268)",
+          "oklch(0.95 0.110 268)"
+        ]
+      },
+      "dusk-violet-deep": {
+        "role": "primary",
+        "displayName": "Deep Dusk Violet",
+        "canonical": "oklch(0.64 0.2 270)",
+        "tonalRamp": [
+          "oklch(0.15 0.119 270)",
+          "oklch(0.26 0.139 270)",
+          "oklch(0.37 0.159 270)",
+          "oklch(0.48 0.178 270)",
+          "oklch(0.60 0.200 270)",
+          "oklch(0.72 0.178 270)",
+          "oklch(0.84 0.157 270)",
+          "oklch(0.95 0.137 270)"
+        ]
+      },
+      "chalk": {
+        "role": "secondary",
+        "displayName": "Chalk",
+        "canonical": "oklch(0.95 0.008 265)",
+        "tonalRamp": [
+          "oklch(0.15 0.007 265)",
+          "oklch(0.26 0.008 265)",
+          "oklch(0.37 0.010 265)",
+          "oklch(0.48 0.011 265)",
+          "oklch(0.60 0.012 265)",
+          "oklch(0.72 0.011 265)",
+          "oklch(0.84 0.009 265)",
+          "oklch(0.95 0.008 265)"
+        ]
+      },
+      "ink": {
+        "role": "secondary",
+        "displayName": "Ink",
+        "canonical": "oklch(0.21 0.02 265)",
+        "tonalRamp": [
+          "oklch(0.15 0.012 265)",
+          "oklch(0.26 0.014 265)",
+          "oklch(0.37 0.016 265)",
+          "oklch(0.48 0.018 265)",
+          "oklch(0.60 0.020 265)",
+          "oklch(0.72 0.018 265)",
+          "oklch(0.84 0.016 265)",
+          "oklch(0.95 0.014 265)"
+        ]
+      },
+      "status-ok": {
+        "role": "tertiary",
+        "displayName": "Signal Green",
+        "canonical": "oklch(0.78 0.16 160)",
+        "tonalRamp": [
+          "oklch(0.15 0.095 160)",
+          "oklch(0.26 0.111 160)",
+          "oklch(0.37 0.127 160)",
+          "oklch(0.48 0.143 160)",
+          "oklch(0.60 0.160 160)",
+          "oklch(0.72 0.143 160)",
+          "oklch(0.84 0.125 160)",
+          "oklch(0.95 0.110 160)"
+        ]
+      },
+      "status-warn": {
+        "role": "tertiary",
+        "displayName": "Lamp Amber",
+        "canonical": "oklch(0.82 0.15 80)",
+        "tonalRamp": [
+          "oklch(0.15 0.089 80)",
+          "oklch(0.26 0.104 80)",
+          "oklch(0.37 0.119 80)",
+          "oklch(0.48 0.134 80)",
+          "oklch(0.60 0.150 80)",
+          "oklch(0.72 0.134 80)",
+          "oklch(0.84 0.118 80)",
+          "oklch(0.95 0.103 80)"
+        ]
+      },
+      "status-err": {
+        "role": "tertiary",
+        "displayName": "Ember Red",
+        "canonical": "oklch(0.7 0.19 22)",
+        "tonalRamp": [
+          "oklch(0.15 0.113 22)",
+          "oklch(0.26 0.132 22)",
+          "oklch(0.37 0.151 22)",
+          "oklch(0.48 0.169 22)",
+          "oklch(0.60 0.190 22)",
+          "oklch(0.72 0.169 22)",
+          "oklch(0.84 0.149 22)",
+          "oklch(0.95 0.130 22)"
+        ]
+      },
+      "status-info": {
+        "role": "tertiary",
+        "displayName": "Info Blue",
+        "canonical": "oklch(0.76 0.12 245)",
+        "tonalRamp": [
+          "oklch(0.15 0.071 245)",
+          "oklch(0.26 0.083 245)",
+          "oklch(0.37 0.095 245)",
+          "oklch(0.48 0.107 245)",
+          "oklch(0.60 0.120 245)",
+          "oklch(0.72 0.107 245)",
+          "oklch(0.84 0.094 245)",
+          "oklch(0.95 0.082 245)"
+        ]
+      },
+      "wallpaper-deep": {
+        "role": "neutral",
+        "displayName": "Wallpaper Deep",
+        "canonical": "oklch(0.155 0.022 265)",
+        "tonalRamp": [
+          "oklch(0.15 0.013 265)",
+          "oklch(0.26 0.015 265)",
+          "oklch(0.37 0.017 265)",
+          "oklch(0.48 0.020 265)",
+          "oklch(0.60 0.022 265)",
+          "oklch(0.72 0.020 265)",
+          "oklch(0.84 0.017 265)",
+          "oklch(0.95 0.015 265)"
+        ]
+      },
+      "window-solid": {
+        "role": "neutral",
+        "displayName": "Window Sheet",
+        "canonical": "oklch(0.205 0.016 265)",
+        "tonalRamp": [
+          "oklch(0.15 0.010 265)",
+          "oklch(0.26 0.011 265)",
+          "oklch(0.37 0.013 265)",
+          "oklch(0.48 0.014 265)",
+          "oklch(0.60 0.016 265)",
+          "oklch(0.72 0.014 265)",
+          "oklch(0.84 0.013 265)",
+          "oklch(0.95 0.011 265)"
+        ]
+      },
+      "text": {
+        "role": "neutral",
+        "displayName": "Text",
+        "canonical": "oklch(0.97 0.004 265)",
+        "tonalRamp": [
+          "oklch(0.15 0.004 265)",
+          "oklch(0.26 0.004 265)",
+          "oklch(0.37 0.005 265)",
+          "oklch(0.48 0.005 265)",
+          "oklch(0.60 0.006 265)",
+          "oklch(0.72 0.005 265)",
+          "oklch(0.84 0.005 265)",
+          "oklch(0.95 0.004 265)"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Display",
+        "purpose": "Overview status title only."
+      },
+      "numeral": {
+        "displayName": "Light Numeral",
+        "purpose": "Live rates, counts and totals in stats strips."
+      },
+      "headline": {
+        "displayName": "Headline",
+        "purpose": "Page titles."
+      },
+      "title": {
+        "displayName": "Title",
+        "purpose": "Tile titles with a muted line icon."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Rows, descriptions, forms."
+      },
+      "meta": {
+        "displayName": "Meta",
+        "purpose": "Subtitles, secondary lines, timestamps."
+      },
+      "label": {
+        "displayName": "Label",
+        "purpose": "Uppercase table headers and phone record labels."
+      }
+    },
+    "shadows": [
+      {
+        "name": "window",
+        "value": "0 40px 100px oklch(0.08 0.03 265 / 0.5), inset 0 1px 0 oklch(0.97 0.006 265 / 0.06)",
+        "purpose": "Desktop app sheet over the wallpaper."
+      },
+      {
+        "name": "float",
+        "value": "0 18px 50px oklch(0.08 0.02 265 / 0.55), 0 2px 8px oklch(0.08 0.02 265 / 0.3)",
+        "purpose": "Popovers, modal, toast, save bar."
+      },
+      {
+        "name": "nav",
+        "value": "0 8px 28px oklch(0.08 0.02 265 / 0.3)",
+        "purpose": "Pill nav, rail and dock (with blur 20px)."
+      },
+      {
+        "name": "tile-sheen",
+        "value": "inset 0 1px 0 oklch(0.97 0.006 265 / 0.04)",
+        "purpose": "Top sheen on tiles; no drop shadow."
+      },
+      {
+        "name": "primary-glow",
+        "value": "0 6px 22px oklch(0.6 0.2 270 / 0.35)",
+        "purpose": "Primary button only."
+      }
+    ],
+    "motion": [
+      {
+        "name": "ease-out-quart",
+        "value": "cubic-bezier(0.25, 1, 0.5, 1)",
+        "purpose": "All state transitions, 150-250ms."
+      },
+      {
+        "name": "enter",
+        "value": "240ms opacity + translateY(4px)",
+        "purpose": "Route change only."
+      },
+      {
+        "name": "pulse",
+        "value": "2.4s box-shadow ring",
+        "purpose": "Healthy status dot only."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "phone",
+        "value": "<720px"
+      },
+      {
+        "name": "tablet",
+        "value": "720-1023px"
+      },
+      {
+        "name": "desktop",
+        "value": "≥1024px"
+      },
+      {
+        "name": "bento-2col",
+        "value": "<1280px"
+      },
+      {
+        "name": "nav-full-labels",
+        "value": "≥1360px"
+      },
+      {
+        "name": "bento-4col",
+        "value": "≥2000px"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "One per view: save, confirm.",
+      "html": "<button class=\"ds-btn-primary\">Salva modifiche</button>",
+      "css": ".ds-btn-primary{font-family:'Inter Variable',Inter,system-ui,sans-serif;height:34px;padding:0 14px;border-radius:999px;border:1px solid oklch(0.97 0.006 265 / 0.14);background:linear-gradient(135deg,oklch(0.66 0.19 262),oklch(0.58 0.22 285));color:oklch(0.97 0.004 265);font-weight:550;font-size:13.5px;box-shadow:0 6px 22px oklch(0.6 0.2 270 / 0.35),inset 0 1px 0 oklch(0.97 0.006 265 / 0.22);cursor:pointer;transition:filter 160ms cubic-bezier(0.25,1,0.5,1),transform 160ms cubic-bezier(0.25,1,0.5,1)}.ds-btn-primary:hover{filter:brightness(1.1)}.ds-btn-primary:active{transform:scale(0.975)}.ds-btn-primary:focus-visible{outline:2px solid oklch(0.74 0.15 268 / 0.6);outline-offset:2px}"
+    },
+    {
+      "name": "Secondary Button",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "Default action pill.",
+      "html": "<button class=\"ds-btn\">Verifica connessione</button>",
+      "css": ".ds-btn{font-family:'Inter Variable',Inter,system-ui,sans-serif;height:34px;padding:0 14px;border-radius:999px;border:1px solid oklch(0.97 0.006 265 / 0.09);background:oklch(0.97 0.006 265 / 0.055);color:oklch(0.97 0.004 265);font-weight:550;font-size:13.5px;cursor:pointer;transition:background 160ms cubic-bezier(0.25,1,0.5,1),border-color 160ms}.ds-btn:hover{background:oklch(0.97 0.006 265 / 0.085);border-color:oklch(0.97 0.006 265 / 0.17)}.ds-btn:active{transform:scale(0.975)}.ds-btn:focus-visible{outline:2px solid oklch(0.74 0.15 268 / 0.6);outline-offset:2px}"
+    },
+    {
+      "name": "Danger Button",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "Destructive, always confirmed.",
+      "html": "<button class=\"ds-btn-danger\">Riavvia router</button>",
+      "css": ".ds-btn-danger{font-family:'Inter Variable',Inter,system-ui,sans-serif;height:34px;padding:0 14px;border-radius:999px;border:1px solid oklch(0.7 0.19 22 / 0.4);background:oklch(0.7 0.19 22 / 0.12);color:oklch(0.84 0.11 22);font-weight:550;font-size:13.5px;cursor:pointer}.ds-btn-danger:hover{background:oklch(0.7 0.19 22 / 0.2)}.ds-btn-danger:focus-visible{outline:2px solid oklch(0.74 0.15 268 / 0.6);outline-offset:2px}"
+    },
+    {
+      "name": "Pill Navigation",
+      "kind": "nav",
+      "refersTo": "nav-tab-active",
+      "description": "Glass pill bar; active tab is Chalk with Ink.",
+      "html": "<nav class=\"ds-nav\"><a class=\"on\" href=\"#\">Panoramica</a><a href=\"#\">Dispositivi</a><a href=\"#\">Mappa</a><a href=\"#\">Eventi</a></nav>",
+      "css": ".ds-nav{font-family:'Inter Variable',Inter,system-ui,sans-serif;display:inline-flex;gap:2px;padding:4px;border-radius:999px;background:oklch(0.25 0.016 265 / 0.72);border:1px solid oklch(0.97 0.006 265 / 0.09);backdrop-filter:blur(20px) saturate(1.3);box-shadow:0 8px 28px oklch(0.08 0.02 265 / 0.3)}.ds-nav a{height:32px;padding:0 13px;display:inline-flex;align-items:center;border-radius:999px;color:oklch(0.97 0.004 265 / 0.66);font-size:13.5px;font-weight:550;text-decoration:none;transition:background 180ms cubic-bezier(0.25,1,0.5,1),color 180ms}.ds-nav a:hover{background:oklch(0.97 0.006 265 / 0.085);color:oklch(0.97 0.004 265)}.ds-nav a.on{background:oklch(0.95 0.008 265);color:oklch(0.21 0.02 265);box-shadow:0 4px 16px oklch(0.08 0.02 265 / 0.35)}.ds-nav a:focus-visible{outline:2px solid oklch(0.74 0.15 268 / 0.6);outline-offset:2px}"
+    },
+    {
+      "name": "Range Segments",
+      "kind": "chip",
+      "refersTo": "range-segment-active",
+      "description": "Time range control.",
+      "html": "<div class=\"ds-seg\"><button>1h</button><button class=\"on\">24h</button><button>7g</button><button>15g</button></div>",
+      "css": ".ds-seg{font-family:'Inter Variable',Inter,system-ui,sans-serif;display:inline-flex;gap:2px;padding:4px;border-radius:999px;background:oklch(0.1 0.01 265 / 0.3);border:1px solid oklch(0.97 0.006 265 / 0.06)}.ds-seg button{height:30px;padding:0 14px;border:0;border-radius:999px;background:transparent;color:oklch(0.97 0.004 265 / 0.66);font:550 13px 'Inter Variable',Inter,sans-serif;cursor:pointer}.ds-seg button:hover{color:oklch(0.97 0.004 265)}.ds-seg button.on{background:oklch(0.95 0.008 265);color:oklch(0.21 0.02 265)}"
+    },
+    {
+      "name": "Field",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "Form input with violet focus halo.",
+      "html": "<input class=\"ds-input\" placeholder=\"http://192.168.1.1\">",
+      "css": ".ds-input{font-family:'Inter Variable',Inter,system-ui,sans-serif;height:34px;padding:0 12px;border-radius:12px;border:1px solid oklch(0.97 0.006 265 / 0.09);background:oklch(0.1 0.01 265 / 0.25);color:oklch(0.97 0.004 265);font-size:14px;outline:none;transition:border-color 160ms,box-shadow 160ms}.ds-input::placeholder{color:oklch(0.97 0.004 265 / 0.46)}.ds-input:hover{border-color:oklch(0.97 0.006 265 / 0.17)}.ds-input:focus{border-color:oklch(0.74 0.15 268 / 0.6);box-shadow:0 0 0 3px oklch(0.7 0.16 268 / 0.16)}"
+    },
+    {
+      "name": "Status Pill",
+      "kind": "chip",
+      "refersTo": "status-pill",
+      "description": "State chip, always worded.",
+      "html": "<span class=\"ds-pill\">LTE · attiva</span> <span class=\"ds-pill err\">Wi-Fi · giù</span>",
+      "css": ".ds-pill{font-family:'Inter Variable',Inter,system-ui,sans-serif;display:inline-flex;align-items:center;gap:6px;padding:4px 11px;border-radius:999px;font-size:12px;font-weight:550;background:oklch(0.97 0.006 265 / 0.085);color:oklch(0.97 0.004 265 / 0.66);border:1px solid oklch(0.97 0.006 265 / 0.06)}.ds-pill.err{background:oklch(0.7 0.19 22 / 0.13);color:oklch(0.84 0.1 22);border-color:oklch(0.7 0.19 22 / 0.22)}"
+    },
+    {
+      "name": "Tile with Stats",
+      "kind": "card",
+      "refersTo": "tile",
+      "description": "Flat translucent tile, round open button, light numeral.",
+      "html": "<section class=\"ds-tile\"><div class=\"ds-head\"><div><div class=\"ds-title\">Connessione</div><div class=\"ds-sub\">Latenza verso i resolver pubblici</div></div><a class=\"ds-go\" href=\"#\" aria-label=\"Apri\"><svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\"><path d=\"M7 7h10v10\"/><path d=\"M7 17 17 7\"/></svg></a></div><div class=\"ds-num\">63<small>ms ora</small></div></section>",
+      "css": ".ds-tile{font-family:'Inter Variable',Inter,system-ui,sans-serif;width:320px;padding:18px 20px;border-radius:22px;background:oklch(0.97 0.006 265 / 0.045);border:1px solid oklch(0.97 0.006 265 / 0.06);box-shadow:inset 0 1px 0 oklch(0.97 0.006 265 / 0.04);color:oklch(0.97 0.004 265)}.ds-head{display:flex;justify-content:space-between;gap:12px;margin-bottom:18px}.ds-title{font-size:16px;font-weight:600;letter-spacing:-0.015em}.ds-sub{font-size:12.5px;color:oklch(0.97 0.004 265 / 0.46);margin-top:3px}.ds-go{width:36px;height:36px;border-radius:50%;display:grid;place-items:center;background:oklch(0.97 0.006 265 / 0.055);border:1px solid oklch(0.97 0.006 265 / 0.09);color:oklch(0.97 0.004 265 / 0.66);transition:background 160ms,color 160ms}.ds-go:hover{background:oklch(0.95 0.008 265);color:oklch(0.21 0.02 265);border-color:transparent}.ds-num{font-size:38px;font-weight:300;letter-spacing:-0.045em;line-height:1;font-variant-numeric:tabular-nums}.ds-num small{font-size:14px;font-weight:400;letter-spacing:0;margin-left:6px;color:oklch(0.97 0.004 265 / 0.66)}"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Night Console",
+    "overview": "HomeNet is an instrument panel read in a dim room. The admin glances at it from the couch or in bed, lights low, and in two seconds knows whether the network is fine. Everything serves that glance: the page title is the state of the internet itself (\"Internet online\"), alerts sit beside the first chart, and colour stays quiet until something is wrong. When something is wrong, it is the only coloured thing on screen.\n\nThe shell borrows umbrelOS's spatial language. The app is one rounded sheet floating over a soft, blurred wallpaper of violet, cyan, magenta and teal glows; navigation and floating layers are frosted glass; content tiles inside the sheet are flat, translucent and hairline-bordered. Depth comes from layering (wallpaper → sheet → tile → control), not from heavy shadows. The signature move is light numerals: large, weight-300 figures for live rates and counts, set beside small muted labels, so numbers read before words.\n\nThe system rejects **dense enterprise dashboards**, **neon \"hacker\" security tools**, and **identical icon-card grids** (PRODUCT.md). It is not a SIEM, not a gamer overlay, and not a SaaS KPI template. It is information-dense where the admin digs in (tables, device detail) and generous where the admin glances (overview header, status).",
+    "keyCharacteristics": [
+      "Dark-first, tinted toward hue 265; never pure black or white.",
+      "Glass shell, flat content: blur only on the nav, the app bar strip, popovers, save bar, toasts.",
+      "One accent (Dusk Violet); every other colour means state or identifies data.",
+      "Pills for every control; 22px tiles; a 28px floating window on desktop.",
+      "Light numerals (weight 300) for headline figures; tabular numbers everywhere data appears.",
+      "Bento layout on the overview, predictable grids everywhere else.",
+      "Three navigation forms from one markup: top pill bar (desktop), floating vertical rail (tablet), floating bottom dock (phone)."
+    ],
+    "rules": [
+      {
+        "name": "The One Voice Rule",
+        "body": "Dusk Violet is the only accent and covers ≤10% of any screen. If two things on screen are violet and neither is focused or current, one is wrong.",
+        "section": "colors"
+      },
+      {
+        "name": "The State-Only Colour Rule",
+        "body": "Green, amber and red appear only when they mean online/warning/error, and always next to a word or icon. A neutral latency bar stays chalk-grey until it is actually slow.",
+        "section": "colors"
+      },
+      {
+        "name": "The Chalk Rule",
+        "body": "The light pill marks \"current\" (tab, range, biggest share). Never use it for a merely important button.",
+        "section": "colors"
+      },
+      {
+        "name": "The Light Numeral Rule",
+        "body": "Headline figures are weight 300 and large; their labels are small and muted beneath. Never set a key metric in bold.",
+        "section": "typography"
+      },
+      {
+        "name": "The Tabular Rule",
+        "body": "Any number that can change or be compared uses tabular figures.",
+        "section": "typography"
+      },
+      {
+        "name": "The Glass Shell Rule",
+        "body": "Blur belongs to navigation, the scrolled app-bar strip, popovers, the save bar and toasts. Tiles never blur. If a tile needs a blur to look good, its contrast is wrong.",
+        "section": "elevation"
+      },
+      {
+        "name": "The Stacked Sheet Rule",
+        "body": "Only the \"Da controllare\" tile shows the two stacked layers peeking above it. Its elevation is semantic: it is the pile of things to deal with.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "**Do** put state first: the overview title is the internet state, and \"Da controllare\" sits beside the first chart.",
+      "**Do** keep Dusk Violet (oklch(0.7 0.16 268)) for focus, current and selection only, ≤10% of the screen.",
+      "**Do** pair every status colour with a word or an icon; status is never colour-only.",
+      "**Do** set headline figures as Light Numerals (300 weight) with tabular figures and a muted unit.",
+      "**Do** use pills for every control and 22px tiles for content; keep tiles flat with a 1px Hairline.",
+      "**Do** compose for each breakpoint (pill bar → rail → dock; bento four columns ≥2000px → twelve-column bento → two columns → priority stack), never just shrink.",
+      "**Do** keep the UI at 1:1 scale on large monitors; use the extra width for more columns, never a global zoom.",
+      "**Do** keep transitions at 150-250ms with cubic-bezier(0.25, 1, 0.5, 1), and honour reduced motion.",
+      "**Do** confirm destructive actions and visually separate them with the Ember Red treatment."
+    ],
+    "donts": [
+      "**Don't** build **dense enterprise dashboards**: no wall of equal-weight widgets, no 12-column KPI farms.",
+      "**Don't** drift into **neon \"hacker\" security tools**: no green-on-black, no glowing outlines, no terminal cosplay.",
+      "**Don't** ship **identical icon-card grids**: if three tiles have the same icon + number + label shape, turn them into a Stats Strip.",
+      "**Don't** blur tiles or use glass as decoration (The Glass Shell Rule).",
+      "**Don't** use `border-left`/`border-right` over 1px as a coloured stripe on cards, rows or alerts.",
+      "**Don't** use gradient text, or any gradient other than the primary button and the wallpaper.",
+      "**Don't** use #000 or #fff; tint every neutral toward hue 265.",
+      "**Don't** colour a chart bar amber or red unless the value has actually crossed a threshold.",
+      "**Don't** scale the whole interface up on wide screens (`zoom`, root font-size bumps); it reads as \"zoomed in\" and wastes the space.",
+      "**Don't** reach for a modal when an inline control or floating bar will do; the save bar is the model."
+    ]
+  }
+}

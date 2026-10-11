@@ -32,7 +32,7 @@ export interface Overview {
   dns: { queries: number; blocked: number };
   services: Service[];
   map: { devices: number[]; services: string[]; links: Array<{ device: number; service: string; weight: number }>; otherServices: number };
-  geo: { top: Array<{ cc: string; up: number; down: number }>; flaggedDevices: number; flaggedUp: number; homeCountry: string };
+  geo: { top: Array<{ cc: string; up: number; down: number }>; flaggedDevices: number; flaggedUp: number; flagged?: Array<{ id: number; name: string; kind: string; up: number; countries: string[] }>; homeCountry: string };
   events: EventRow[];
 }
 

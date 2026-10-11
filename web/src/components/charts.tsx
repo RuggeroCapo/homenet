@@ -261,3 +261,118 @@ function roundedTop(x: number, y: number, w: number, h: number, r: number) {
   if (h <= 0) return '';
   return `M${x},${y + h} L${x},${y + r} Q${x},${y} ${x + r},${y} L${x + w - r},${y} Q${x + w},${y} ${x + w},${y + r} L${x + w},${y + h} Z`;
 }
+
+/** Latency as thin columns, one per time bucket; the newest bucket is highlighted. Colour encodes state only. */
+export function LatencyBars({ times, values, warnAt = 150, errAt = 400 }: { times: number[]; values: Array<number | null>; warnAt?: number; errAt?: number }) {
+  const [ref, w] = useWidth<HTMLDivElement>();
+  const n = Math.max(6, Math.min(36, Math.floor(w / 18)));
+  const buckets = useMemo(() => {
+    if (!values.length) return [];
+    const size = Math.max(1, Math.ceil(values.length / n));
+    const out: Array<{ t0: number; t1: number; v: number | null }> = [];
+    for (let i = 0; i < values.length; i += size) {
+      const vs = values.slice(i, i + size).filter((v): v is number => v !== null && Number.isFinite(v));
+      out.push({ t0: times[i], t1: times[Math.min(i + size, times.length) - 1], v: vs.length ? vs.reduce((a, b) => a + b, 0) / vs.length : null });
+    }
+    return out;
+  }, [values, times, n]);
+  const max = Math.max(100, ...buckets.map((b) => b.v ?? 0));
+  const fmtT = (t: number) => new Date(t * 1000).toLocaleString('it-IT', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+  const last = buckets.length - 1;
+  return (
+    <div ref={ref}>
+      <div className="lat" role="img" aria-label={`Latenza nel periodo, ultimo valore ${buckets[last]?.v !== null && buckets[last] ? Math.round(buckets[last].v!) : 'n/d'} ms`}>
+        {buckets.map((b, i) => {
+          const tone = b.v === null ? 'none' : b.v >= errAt ? 'err' : b.v >= warnAt ? 'warn' : '';
+          return (
+            <div key={i} className={`lat-col ${i === last ? 'now' : ''}`} title={`${fmtT(b.t0)} · ${b.v === null ? 'nessun dato' : `${Math.round(b.v)} ms`}`}>
+              <div className="track">
+                <div className={`b ${tone}`} style={{ height: `${b.v === null ? 6 : Math.max(4, Math.sqrt(b.v / max) * 100)}%` }}>
+                  {i === last && b.v !== null && <span className="lat-bubble">{Math.round(b.v)} ms</span>}
+                </div>
+              </div>
+              <span className="d" />
+            </div>
+          );
+        })}
+      </div>
+      {buckets.length > 1 && (
+        <div className="lat-scale num">
+          <span>{new Date(buckets[0].t0 * 1000).toLocaleString('it-IT', times[times.length - 1] - times[0] > 2 * 86400 ? { day: 'numeric', month: 'short' } : { hour: '2-digit', minute: '2-digit' })}</span>
+          <span>ora</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Ring gauge for the data plan: outer ticks are the days of the billing cycle, the arc is the share of the quota used. */
+export function QuotaRing({ used, quota, projected, start, end, children }: {
+  used: number; quota: number | null; projected: number; start: number; end: number; children?: ReactNode;
+}) {
+  const days = Math.max(1, Math.round((end - start) / 86400));
+  const elapsed = Math.min(days, Math.max(0, (Date.now() / 1000 - start) / 86400));
+  const a0 = 225, sweep = 270;
+  const pt = (r: number, deg: number) => {
+    const rad = ((deg - 90) * Math.PI) / 180;
+    return [100 + r * Math.cos(rad), 100 + r * Math.sin(rad)];
+  };
+  const arc = (r: number, from: number, to: number) => {
+    const [x0, y0] = pt(r, from), [x1, y1] = pt(r, to);
+    return `M${x0},${y0} A${r},${r} 0 ${to - from > 180 ? 1 : 0} 1 ${x1},${y1}`;
+  };
+  // without a plan, the arc compares usage with the end-of-cycle estimate
+  const ref = quota ?? Math.max(projected, used, 1);
+  const frac = Math.min(1, used / ref);
+  const projFrac = quota ? projected / quota : 0;
+  const tone = !quota ? 'var(--accent)' : projFrac > 1 ? 'var(--err)' : projFrac > 0.85 ? 'var(--warn)' : 'var(--accent)';
+  return (
+    <div className="ring">
+      <svg viewBox="0 0 200 200" role="img" aria-label={quota ? `Usati ${Math.round(frac * 100)}% del piano dati` : 'Consumo dati nel ciclo'}>
+        {Array.from({ length: days }, (_, i) => {
+          const deg = a0 + (i / Math.max(1, days - 1)) * sweep;
+          const [x0, y0] = pt(96, deg), [x1, y1] = pt(88, deg);
+          return <line key={i} x1={x0} y1={y0} x2={x1} y2={y1} stroke={i < elapsed ? 'var(--text-2)' : 'var(--grid)'} strokeWidth={1.6} strokeLinecap="round" />;
+        })}
+        <path d={arc(74, a0, a0 + sweep)} fill="none" stroke="var(--surface-2)" strokeWidth={12} strokeLinecap="round" />
+        {frac > 0 && <path d={arc(74, a0, a0 + Math.max(1, frac * sweep))} fill="none" stroke={quota ? tone : 'var(--text-2)'} strokeWidth={12} strokeLinecap="round" />}
+        {quota && projFrac > frac && projFrac <= 1.25 && (() => {
+          const [x, y] = pt(74, a0 + Math.min(1, projFrac) * sweep);
+          return <circle cx={x} cy={y} r={4} fill="var(--win-solid)" stroke={tone} strokeWidth={2} />;
+        })()}
+      </svg>
+      <div className="ring-c">{children}</div>
+    </div>
+  );
+}
+
+export interface ShareItem { key: string; label: string; value: number; color?: string; href?: string }
+
+/** Segmented share bar: labelled pills sized by share, smallest entries folded into a hatched "Altri" segment. */
+export function ShareStrip({ items, total, max: maxWide = 4, format }: { items: ShareItem[]; total: number; max?: number; format: (v: number) => string }) {
+  const [ref, w] = useWidth<HTMLDivElement>();
+  const max = w && w < 560 ? 2 : maxWide;
+  if (total <= 0) return null;
+  const sorted = [...items].sort((a, b) => b.value - a.value);
+  const shown = sorted.filter((x, i) => i < max && x.value / total >= 0.06);
+  const rest = total - shown.reduce((a, x) => a + x.value, 0);
+  const segs = [...shown.map((x, i) => ({ ...x, cls: `l${i}` })), ...(rest / total >= 0.02 ? [{ key: '_rest', label: 'Altri', value: rest, cls: 'rest', color: undefined, href: '#/devices' }] : [])];
+  const pct = (v: number) => `${Math.round((v / total) * 100)}%`;
+  return (
+    <div ref={ref} className="share" role="list" aria-label="Ripartizione del traffico">
+      {segs.map((s) => {
+        const body = (
+          <>
+            <span className="lbl">{s.color && <i style={{ background: s.color }} />}{s.label}</span>
+            <span className="fill">{pct(s.value)}</span>
+          </>
+        );
+        const style = { flex: `${Math.max(s.value / total, 0.07)} 1 0` };
+        const title = `${s.label}: ${format(s.value)} (${pct(s.value)})`;
+        return s.href
+          ? <a key={s.key} role="listitem" href={s.href} className={`share-seg ${s.cls}`} style={style} title={title}>{body}</a>
+          : <div key={s.key} role="listitem" className={`share-seg ${s.cls}`} style={style} title={title}>{body}</div>;
+      })}
+    </div>
+  );
+}

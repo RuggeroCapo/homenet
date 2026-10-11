@@ -82,10 +82,14 @@ export function Settings() {
 
   return (
     <>
-      <PageHead title="Impostazioni" subtitle="Collegamenti, watchdog, watchlist e conservazione dei dati.">
-        {dirty && <span className="pill warn">Modifiche non salvate</span>}
-        <button className="btn primary" onClick={save} disabled={saving || !dirty}><Save />{saving ? 'Salvataggio…' : 'Salva modifiche'}</button>
-      </PageHead>
+      <PageHead title="Impostazioni" subtitle="Collegamenti, watchdog, watchlist e conservazione dei dati." />
+      {(dirty || saving) && (
+        <div className="savebar glass" role="region" aria-label="Modifiche non salvate">
+          <span className="status"><span className="dot warn" />Modifiche non salvate</span>
+          <button className="btn sm ghost" onClick={() => data && setS(data)} disabled={saving}>Annulla</button>
+          <button className="btn primary" onClick={save} disabled={saving}><Save />{saving ? 'Salvataggio…' : 'Salva'}</button>
+        </div>
+      )}
       {status?.demo && <div className="banner info"><Plug /><div>Modalità demo attiva (DEMO=1): router e AdGuard sono simulati, le impostazioni di connessione vengono ignorate.</div></div>}
       <div className="grid g-2">
         <Card>

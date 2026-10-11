@@ -1,8 +1,8 @@
-import { Activity, Cable, Clock, Gauge as GaugeIcon, MessageSquare, Power, RefreshCw, RotateCw, Router, ShieldCheck, Signal, Wifi, Zap } from 'lucide-react';
+import { Activity, Cable, Globe, Clock, Gauge as GaugeIcon, MessageSquare, Power, RefreshCw, RotateCw, Router, ShieldCheck, Signal, Wifi, Zap } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 import { PageHead, type PageProps } from '../App';
 import { Gauge, TimeChart } from '../components/charts';
-import { Card, CardHead, DeviceIcon, Empty, EventList, RangePicker, Skeleton, Status, useUi } from '../components/ui';
+import { Card, CardHead, DeviceIcon, Empty, EventList, RangePicker, Skeleton, Stat, Stats, Status, useUi } from '../components/ui';
 import { api, fmtBps, fmtDate, fmtDuration, fmtPct, seriesColor, usePoll } from '../lib';
 import type { DataUsage, EventRow, Modem, SamplePoint, Wan, WifiRadio } from '../types';
 import { UsageCard } from '../components/UsageCard';
@@ -118,7 +118,7 @@ function WifiCard({ radios }: { radios: WifiRadio[] }) {
 
 export function Monitor({ range, setRange }: PageProps) {
   const { data, reload } = usePoll<MonitorData>(`/api/monitor?range=${range}`, 15_000);
-  if (!data) return <><PageHead title="Monitoraggio" /><Skeleton h={500} /></>;
+  if (!data) return <><PageHead title="Monitoraggio"><RangePicker value={range} onChange={setRange} /></PageHead><Skeleton h={500} /></>;
   const pts = data.series.points;
   const times = pts.map((p) => p.t);
   const m = data.modem;
@@ -142,12 +142,12 @@ export function Monitor({ range, setRange }: PageProps) {
               {r.offload ? 'Il flow offloading del firewall è attivo: alcune connessioni potrebbero non aggiornare i contatori e il traffico per dispositivo risultare sottostimato.' : ''}</div>
           </div>
         )}
-        <div className="grid g-4">
-          <Card><div className="kpi-lbl" style={{ marginTop: 0 }}>Internet</div><div className="kpi-val" style={{ color: data.internet.online ? 'var(--ok)' : 'var(--err)', marginTop: 6 }}>{data.internet.online ? 'Online' : 'Offline'}</div><div className="meta">da {fmtDate(data.internet.since)}</div></Card>
-          <Card><div className="kpi-lbl" style={{ marginTop: 0 }}>Disponibilità</div><div className="kpi-val num" style={{ marginTop: 6 }}>{fmtPct(data.summary.a, 2)}</div><div className="meta">nel periodo selezionato</div></Card>
-          <Card><div className="kpi-lbl" style={{ marginTop: 0 }}>Latenza media</div><div className="kpi-val num" style={{ marginTop: 6 }}>{data.summary.lat !== null ? `${Math.round(data.summary.lat)} ms` : '—'}</div><div className="meta">ora {data.internet.latency ?? '—'} ms · loss {fmtPct(data.summary.loss, 1)}</div></Card>
-          <Card><div className="kpi-lbl" style={{ marginTop: 0 }}>Router</div><div className="kpi-val" style={{ marginTop: 6 }}><Status tone={data.routerOk ? 'ok' : 'err'}><span style={{ fontSize: 20, fontWeight: 650 }}>{data.routerOk ? 'Raggiungibile' : 'Non risponde'}</span></Status></div><div className="meta">{r ? `uptime ${fmtDuration(r.uptime)} · CPU ${r.load?.toFixed(2) ?? '—'} · RAM ${fmtPct(r.memUsed)}` : 'non configurato'}</div></Card>
-        </div>
+        <Stats>
+          <Stat value={data.internet.online ? 'Online' : 'Offline'} label={`Internet · da ${fmtDate(data.internet.since)}`} icon={Globe} tone={data.internet.online ? undefined : 'err'} />
+          <Stat value={fmtPct(data.summary.a, 2)} label="Disponibilità nel periodo" icon={ShieldCheck} />
+          <Stat value={data.summary.lat !== null ? Math.round(data.summary.lat) : '—'} unit="ms" label={`Latenza media · ora ${data.internet.latency ?? '—'} ms · loss ${fmtPct(data.summary.loss, 1)}`} icon={GaugeIcon} />
+          <Stat value={data.routerOk ? 'OK' : 'Giù'} label={r ? `Router · uptime ${fmtDuration(r.uptime)} · CPU ${r.load?.toFixed(2) ?? '—'} · RAM ${fmtPct(r.memUsed)}` : 'Router non configurato'} icon={Router} tone={data.routerOk ? undefined : 'err'} />
+        </Stats>
 
         <div className="grid g-wide">
           <Card>
@@ -156,7 +156,7 @@ export function Monitor({ range, setRange }: PageProps) {
               <>
                 <div className="hstack wrap" style={{ gap: 24, alignItems: 'center' }}>
                   <Gauge value={m.quality} label="Qualità segnale"><div className="kpi-val num">{m.quality ?? '—'}%</div></Gauge>
-                  <div className="grid g-4" style={{ flex: 1, minWidth: 320, gap: 12 }}>
+                  <div className="grid" style={{ flex: 1, minWidth: 'min(320px, 100%)', gap: 12, gridTemplateColumns: 'repeat(auto-fit, minmax(132px, 1fr))' }}>
                     <Metric label="RSRP (potenza)" value={m.rsrp} unit="dBm" tone={rsrpT} note={rsrpN} />
                     <Metric label="SINR (rumore)" value={m.sinr !== undefined ? Math.round(m.sinr) : undefined} unit="dB" tone={sinrT} note={sinrN} />
                     <Metric label="RSRQ (qualità)" value={m.rsrq} unit="dB" tone={rsrqT} note={rsrqN} />

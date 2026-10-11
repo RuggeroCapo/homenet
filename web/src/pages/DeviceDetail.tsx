@@ -1,9 +1,9 @@
-import { ArrowDown, ArrowUp, Bell, ChevronLeft, Clock, Download, Globe, MapPin, Pencil, ShieldAlert, Trash2, Waypoints } from 'lucide-react';
+import { Activity, ArrowDown, ArrowUp, Bell, ChevronLeft, Clock, Download, Globe, MapPin, Pencil, ShieldAlert, Trash2, Waypoints } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { PageHead, type PageProps } from '../App';
+import { type PageProps } from '../App';
 import { TimeChart, UpDownBar } from '../components/charts';
-import { Card, CardHead, DeviceIcon, Empty, EventList, KINDS, Kpi, RangePicker, Seg, Skeleton, Status, useUi } from '../components/ui';
-import { api, countryName, flag, fmtAgo, fmtBytes, fmtDate, fmtNum, seriesColor, usePoll } from '../lib';
+import { Card, CardHead, DeviceIcon, Empty, EventList, KINDS, RangePicker, Seg, Skeleton, Stat, Stats, Status, useUi } from '../components/ui';
+import { api, countryName, flag, fmtAgo, fmtBytes, fmtDate, fmtNum, seriesColor, splitUnit, usePoll } from '../lib';
 import type { Destination, Device, EventRow } from '../types';
 import { signalTone } from './Devices';
 
@@ -37,13 +37,49 @@ export function DeviceDetail({ id, range, setRange }: PageProps & { id: number }
   const maxCountry = Math.max(1, ...data.countries.map((c) => c.up + c.down));
   const flagged = data.destinations.filter((x) => x.flagged);
   const maxDest = Math.max(1, ...data.destinations.map((x) => x.up + x.down));
+  const [down, downU] = splitUnit(fmtBytes(data.totals.down));
+  const [up, upU] = splitUnit(fmtBytes(data.totals.up));
 
   return (
     <>
       <a href="#/devices" className="back"><ChevronLeft size={16} />Dispositivi</a>
-      <PageHead title={d.name} subtitle={<span className="num">{[d.ip, d.mac, d.hostname && d.hostname !== d.name ? d.hostname : null].filter(Boolean).join(' · ')}</span>}>
-        <RangePicker value={range} onChange={setRange} />
-      </PageHead>
+      <header className="page-head">
+        <div className="hstack" style={{ gap: 16, minWidth: 0, alignItems: 'center' }}>
+          <DeviceIcon kind={d.kind} color={color} size="lg" />
+          <div style={{ minWidth: 0 }}>
+            {editing ? (
+              <form className="hstack wrap" style={{ gap: 8, marginBottom: 6 }} onSubmit={(e) => { e.preventDefault(); setEditing(false); void patch({ alias }); }}>
+                <input className="input" autoFocus value={alias} placeholder={d.hostname ?? 'Nome'} aria-label="Nome del dispositivo" onChange={(e) => setAlias(e.target.value)} />
+                <button className="btn primary sm" type="submit">Salva</button>
+                <button className="btn sm" type="button" onClick={() => setEditing(false)}>Annulla</button>
+              </form>
+            ) : (
+              <h1 className="hstack" style={{ gap: 6 }}>
+                <span className="ellipsis">{d.name}</span>
+                <button className="btn ghost sm icon-btn" onClick={() => setEditing(true)} aria-label="Rinomina" title="Rinomina"><Pencil /></button>
+              </h1>
+            )}
+            <div className="hstack wrap" style={{ gap: '4px 14px' }}>
+              {d.online ? <Status tone="ok">Online</Status> : <Status tone="off">Visto {fmtAgo(d.lastSeen)}</Status>}
+              {d.wifiSignal !== null && <Status tone={signalTone(d.wifiSignal)}>Wi-Fi {d.wifiSignal} dBm</Status>}
+              <span className="meta num">{[d.ip, d.mac, d.hostname && d.hostname !== d.name ? d.hostname : null].filter(Boolean).join(' · ')}</span>
+              <span className="meta">Visto la prima volta {fmtDate(d.firstSeen)}</span>
+            </div>
+          </div>
+        </div>
+        <div className="head-tools">
+          <select className="select pill" value={d.kind} onChange={(e) => void patch({ kind: e.target.value })} aria-label="Tipo dispositivo">
+            {Object.entries(KINDS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+          </select>
+          <RangePicker value={range} onChange={setRange} />
+        </div>
+      </header>
+      <Stats>
+        <Stat value={down} unit={downU} label="Download" icon={ArrowDown} />
+        <Stat value={up} unit={upU} label="Upload" icon={ArrowUp} />
+        <Stat value={fmtNum(data.domains.reduce((a, x) => a + x.queries, 0))} label="Query DNS" icon={Globe} />
+        <Stat value={data.countries.filter((c) => c.cc).length} label="Paesi contattati" icon={MapPin} />
+      </Stats>
       <div className="stack">
         {flagged.length > 0 && (
           <div className="banner warn" style={{ marginBottom: 0 }}>
@@ -53,43 +89,14 @@ export function DeviceDetail({ id, range, setRange }: PageProps & { id: number }
         )}
         <div className="grid g-wide">
           <Card>
-            <div className="hstack" style={{ gap: 16, marginBottom: 20, flexWrap: 'wrap' }}>
-              <DeviceIcon kind={d.kind} color={color} />
-              <div style={{ flex: 1, minWidth: 200 }}>
-                {editing ? (
-                  <form className="hstack" onSubmit={(e) => { e.preventDefault(); setEditing(false); void patch({ alias }); }}>
-                    <input className="input" autoFocus value={alias} placeholder={d.hostname ?? 'Nome'} onChange={(e) => setAlias(e.target.value)} />
-                    <button className="btn primary sm" type="submit">Salva</button>
-                    <button className="btn sm" type="button" onClick={() => setEditing(false)}>Annulla</button>
-                  </form>
-                ) : (
-                  <div className="hstack" style={{ gap: 8 }}>
-                    <span style={{ fontWeight: 600, fontSize: 18 }}>{d.name}</span>
-                    <button className="btn ghost sm icon-btn" onClick={() => setEditing(true)} aria-label="Rinomina"><Pencil /></button>
-                  </div>
-                )}
-                <div className="hstack wrap" style={{ gap: 12, marginTop: 6 }}>
-                  {d.online ? <Status tone="ok">Online</Status> : <Status tone="off">Visto {fmtAgo(d.lastSeen)}</Status>}
-                  {d.wifiSignal !== null && <Status tone={signalTone(d.wifiSignal)}>Wi-Fi {d.wifiSignal} dBm</Status>}
-                  <span className="meta">Primo avvistamento {fmtDate(d.firstSeen)}</span>
-                </div>
-              </div>
-              <select className="select" value={d.kind} onChange={(e) => void patch({ kind: e.target.value })} aria-label="Tipo dispositivo">
-                {Object.entries(KINDS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
-              </select>
-            </div>
-            <div className="grid g-4" style={{ marginBottom: 20 }}>
-              <Kpi value={fmtBytes(data.totals.down)} label="Download" accent="var(--down)" />
-              <Kpi value={fmtBytes(data.totals.up)} label="Upload" accent="var(--up)" />
-              <Kpi value={fmtNum(data.domains.reduce((a, x) => a + x.queries, 0))} label="Query DNS" />
-              <Kpi value={data.countries.filter((c) => c.cc).length} label="Paesi contattati" />
-            </div>
-            <TimeChart height={200} times={data.series.map((p) => p[0])} format={(v) => fmtBytes(v)}
+            <CardHead icon={Activity} title="Traffico nel tempo" sub="Byte per intervallo">
+              <div className="legend"><span><i style={{ background: 'var(--down)' }} />Download</span><span><i style={{ background: 'var(--up)' }} />Upload</span></div>
+            </CardHead>
+            <TimeChart height={220} times={data.series.map((p) => p[0])} format={(v) => fmtBytes(v)}
               series={[
                 { key: 'down', label: 'Download', color: 'var(--down)', values: data.series.map((p) => p[1]), area: true },
                 { key: 'up', label: 'Upload', color: 'var(--up)', values: data.series.map((p) => p[2]), area: true },
               ]} />
-            <div className="legend" style={{ marginTop: 8 }}><span><i style={{ background: 'var(--down)' }} />Download</span><span><i style={{ background: 'var(--up)' }} />Upload</span><span className="faint">per intervallo</span></div>
           </Card>
           <div className="stack">
             <Card>

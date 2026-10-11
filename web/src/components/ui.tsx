@@ -1,5 +1,5 @@
 import {
-  Ban, Cable, Cctv, CircleCheck, CircleHelp, Cpu, Gamepad2, House, Info, Laptop, Monitor, Plus, Power, Printer,
+  ArrowUpRight, Ban, Cable, Cctv, CircleCheck, CircleHelp, Cpu, Gamepad2, House, Info, Laptop, Monitor, Plus, Power, Printer,
   Router, Server, ShieldAlert, Smartphone, Speaker, Tablet, TriangleAlert, Tv, WifiOff, type LucideIcon,
 } from 'lucide-react';
 import { createContext, useCallback, useContext, useState, type ReactNode } from 'react';
@@ -23,12 +23,12 @@ export const KINDS: Record<string, { icon: LucideIcon; label: string; color: str
   unknown: { icon: CircleHelp, label: 'Sconosciuto', color: 'rgba(255,255,255,.5)' },
 };
 
-export function DeviceIcon({ kind, size = 'md', color }: { kind: string; size?: 'sm' | 'md'; color?: string }) {
+export function DeviceIcon({ kind, size = 'md', color }: { kind: string; size?: 'sm' | 'md' | 'lg'; color?: string }) {
   const k = KINDS[kind] ?? KINDS.unknown;
   const Icon = k.icon;
   const c = color ?? k.color;
   return (
-    <span className={`avatar ${size === 'sm' ? 'sm' : ''}`} style={{ background: `color-mix(in srgb, ${c} 18%, transparent)`, color: c }} aria-label={k.label} title={k.label}>
+    <span className={`avatar ${size === 'md' ? '' : size}`} style={{ background: `color-mix(in srgb, ${c} 18%, transparent)`, color: c }} aria-label={k.label} title={k.label}>
       <Icon strokeWidth={1.8} />
     </span>
   );
@@ -43,42 +43,54 @@ export function LetterAvatar({ text, color, size = 'md' }: { text: string; color
 }
 
 export function Card({ children, className = '', style }: { children: ReactNode; className?: string; style?: React.CSSProperties }) {
-  return <section className={`glass card ${className}`} style={style}>{children}</section>;
+  return <section className={`card ${className}`} style={style}>{children}</section>;
 }
 
+/** Tile header: title + optional subtitle, controls on the right and a round "open" button when `href` is set. */
 export function CardHead({ icon: Icon, title, href, sub, children }: { icon?: LucideIcon; title: ReactNode; href?: string; sub?: ReactNode; children?: ReactNode }) {
-  const t = (
-    <>
-      {Icon && <Icon strokeWidth={1.8} />}
-      <span>{title}</span>
-    </>
-  );
   return (
     <div className="card-head">
       <div>
-        <div className="card-title">{href ? <a href={href}>{t}<span className="faint" aria-hidden>›</span></a> : t}</div>
-        {sub && <div className="card-sub" style={{ marginTop: 4 }}>{sub}</div>}
+        <h2 className="card-title" style={{ margin: 0 }}>{Icon && <Icon strokeWidth={1.8} aria-hidden />}<span>{title}</span></h2>
+        {sub && <div className="card-sub">{sub}</div>}
       </div>
-      {children && <div className="hstack wrap">{children}</div>}
+      {(children || href) && (
+        <div className="card-tools">
+          {children}
+          {href && <a className="go" href={href} aria-label={`Apri ${typeof title === 'string' ? title : 'dettagli'}`} title="Apri"><ArrowUpRight strokeWidth={2} /></a>}
+        </div>
+      )}
     </div>
   );
 }
 
-export function Seg<T extends string>({ value, options, onChange }: { value: T; options: Array<[T, string]>; onChange: (v: T) => void }) {
+export function Seg<T extends string>({ value, options, onChange, label, size }: { value: T; options: Array<[T, string, string?]>; onChange: (v: T) => void; label?: string; size?: 'lg' }) {
   return (
-    <div className="seg" role="tablist">
-      {options.map(([v, l]) => (
-        <button key={v} role="tab" aria-selected={v === value} className={v === value ? 'on' : ''} onClick={() => onChange(v)}>{l}</button>
+    <div className={`seg ${size ?? ''}`} role="radiogroup" aria-label={label}>
+      {options.map(([v, l, full]) => (
+        <button key={v} type="button" role="radio" aria-checked={v === value} aria-label={full} title={full} className={v === value ? 'on' : ''} onClick={() => onChange(v)}>{l}</button>
       ))}
     </div>
   );
 }
 
+const RANGE_SHORT: Record<Range, string> = { '1h': '1h', '24h': '24h', '7d': '7g', '15d': '15g' };
+
 export function RangePicker({ value, onChange }: { value: Range; onChange: (r: Range) => void }) {
+  return <Seg size="lg" label="Intervallo di tempo" value={value} onChange={onChange} options={(Object.keys(RANGE_LABEL) as Range[]).map((r) => [r, RANGE_SHORT[r], RANGE_LABEL[r]])} />;
+}
+
+/** Big light numerals strip (page headers). */
+export function Stats({ children, className = '' }: { children: ReactNode; className?: string }) {
+  return <div className={`stats ${className}`}>{children}</div>;
+}
+
+export function Stat({ value, unit, label, icon: Icon, tone }: { value: ReactNode; unit?: ReactNode; label: ReactNode; icon?: LucideIcon; tone?: 'warn' | 'err' }) {
   return (
-    <select className="select" value={value} onChange={(e) => onChange(e.target.value as Range)} aria-label="Intervallo di tempo">
-      {(Object.keys(RANGE_LABEL) as Range[]).map((r) => <option key={r} value={r}>{RANGE_LABEL[r]}</option>)}
-    </select>
+    <div className={`stat ${tone ?? ''}`}>
+      <div className="stat-val">{value}{unit && <small>{unit}</small>}</div>
+      <div className="stat-lbl">{Icon && <span className="ico"><Icon strokeWidth={2.2} aria-hidden /></span>}{label}</div>
+    </div>
   );
 }
 
@@ -115,16 +127,16 @@ export function EventList({ events, compact }: { events: EventRow[]; compact?: b
       {events.map((e) => {
         const Icon = eventIcon(e);
         return (
-          <div key={e.id} className="ev" style={compact ? { gridTemplateColumns: '36px 60px 1fr' } : undefined}>
+          <div key={e.id} className={`ev ${compact ? 'compact' : ''}`}>
             <span className={`ev-icon ${e.severity}`}><Icon strokeWidth={2} /></span>
-            <span className="meta num">{fmtWhen(e.ts)}</span>
+            {!compact && <span className="meta num">{fmtWhen(e.ts)}</span>}
             <div style={{ minWidth: 0 }}>
-              <div className={`ev-title ${e.severity}`} style={{ fontWeight: 550 }}>
+              <div className={`ev-title ${e.severity} ellipsis`} style={{ fontWeight: 550 }}>
                 {e.device_id ? <a href={`#/devices/${e.device_id}`}>{e.title}</a> : e.title}
               </div>
               {e.detail && <div className="meta ellipsis">{e.detail}</div>}
             </div>
-            {!compact && <span className="pill">{e.severity === 'error' ? 'Critico' : e.severity === 'warning' ? 'Attenzione' : e.severity === 'success' ? 'Risolto' : 'Info'}</span>}
+            {compact ? <span className="meta num" style={{ whiteSpace: 'nowrap' }}>{fmtWhen(e.ts)}</span> : <span className="pill hide-sm">{e.severity === 'error' ? 'Critico' : e.severity === 'warning' ? 'Attenzione' : e.severity === 'success' ? 'Risolto' : 'Info'}</span>}
           </div>
         );
       })}

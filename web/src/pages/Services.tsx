@@ -1,8 +1,8 @@
-import { ChevronLeft, Globe, Monitor, Server } from 'lucide-react';
+import { Ban, ChevronLeft, Globe, Layers, Monitor, Search, Server } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { PageHead, type PageProps } from '../App';
 import { ShareBar } from '../components/charts';
-import { Card, CardHead, DeviceIcon, Empty, LetterAvatar, RangePicker, Skeleton } from '../components/ui';
+import { Card, CardHead, DeviceIcon, Empty, LetterAvatar, RangePicker, Skeleton, Stat, Stats } from '../components/ui';
 import { countryName, flag, fmtBytes, fmtNum, fmtPct, hashColor, seriesColor, usePoll } from '../lib';
 import type { Service } from '../types';
 import { SetupBanner } from './Overview';
@@ -24,33 +24,35 @@ export function Services({ range, setRange }: PageProps) {
         <RangePicker value={range} onChange={setRange} />
       </PageHead>
       {status && <SetupBanner configured={status.configured} />}
-      <div className="grid g-3" style={{ marginBottom: 20 }}>
-        <Card><div className="kpi-lbl">Query DNS</div><div className="big num" style={{ marginTop: 6 }}>{fmtNum(total)}</div></Card>
-        <Card><div className="kpi-lbl">Bloccate da AdGuard</div><div className="big num" style={{ marginTop: 6 }}>{fmtNum(totalBlocked)} <span className="muted" style={{ fontSize: 16 }}>{fmtPct(total ? totalBlocked / total : 0, 1)}</span></div></Card>
-        <Card><div className="kpi-lbl">Servizi distinti</div><div className="big num" style={{ marginTop: 6 }}>{fmtNum(data?.length ?? 0)}</div></Card>
-      </div>
+      {data && (
+        <Stats>
+          <Stat value={fmtNum(total)} label="Query DNS" icon={Search} />
+          <Stat value={fmtNum(totalBlocked)} unit={fmtPct(total ? totalBlocked / total : 0, 1)} label="Bloccate da AdGuard" icon={Ban} />
+          <Stat value={fmtNum(data.length)} label="Servizi distinti" icon={Layers} />
+        </Stats>
+      )}
       <Card>
-        <div className="between wrap" style={{ marginBottom: 16 }}>
-          <select className="select" value={cat} onChange={(e) => setCat(e.target.value)} aria-label="Categoria">
+        <div className="toolbar">
+          <select className="select pill" value={cat} onChange={(e) => setCat(e.target.value)} aria-label="Categoria">
             <option value="">Tutte le categorie</option>
             {cats.map((c) => <option key={c} value={c}>{c}</option>)}
           </select>
-          <input className="input" placeholder="Filtra dominio" value={q} onChange={(e) => setQ(e.target.value)} style={{ width: 260 }} />
+          <input className="input pill" type="search" placeholder="Filtra dominio" aria-label="Filtra dominio" value={q} onChange={(e) => setQ(e.target.value)} style={{ width: 280 }} />
         </div>
         {!data ? <Skeleton h={400} /> : list.length === 0 ? <Empty icon={Globe}>Nessun dominio</Empty> : (
           <div style={{ overflowX: 'auto' }}>
-            <table className="tbl">
+            <table className="tbl cards">
               <thead><tr><th>Dominio</th><th>Categoria</th><th className="r">Query</th><th className="r">Bloccate</th><th className="r">Dispositivi</th><th className="r">Traffico</th><th style={{ width: '18%' }}>Quota query</th></tr></thead>
               <tbody>
                 {list.map((s) => (
                   <tr key={s.base} className="click" onClick={() => { window.location.hash = `/services/${encodeURIComponent(s.base)}`; }}>
                     <td><div className="hstack" style={{ gap: 10 }}><LetterAvatar text={s.base} color={hashColor(s.base)} size="sm" /><span className="name">{s.base}</span></div></td>
-                    <td className="muted">{s.category}</td>
-                    <td className="r num">{fmtNum(s.queries)}</td>
-                    <td className="r num">{s.blocked ? <span className="pill err">{fmtNum(s.blocked)}</span> : <span className="faint">—</span>}</td>
-                    <td className="r num">{s.devices}</td>
-                    <td className="r num muted">{s.up + s.down ? fmtBytes(s.up + s.down) : '—'}</td>
-                    <td><div className="hstack" style={{ gap: 10 }}><span className="meta num" style={{ width: 38 }}>{fmtPct(s.pct, 1)}</span><div style={{ flex: 1 }}><ShareBar value={s.queries} max={maxQ} /></div></div></td>
+                    <td data-label="Categoria" className="muted">{s.category}</td>
+                    <td data-label="Query" className="r num">{fmtNum(s.queries)}</td>
+                    <td data-label="Bloccate" className="r num">{s.blocked ? <span className="pill err">{fmtNum(s.blocked)}</span> : <span className="faint">—</span>}</td>
+                    <td data-label="Dispositivi" className="r num">{s.devices}</td>
+                    <td data-label="Traffico" className="r num muted">{s.up + s.down ? fmtBytes(s.up + s.down) : '—'}</td>
+                    <td data-label="Quota query" className="full"><div className="hstack" style={{ gap: 10 }}><span className="meta num" style={{ width: 38 }}>{fmtPct(s.pct, 1)}</span><div style={{ flex: 1 }}><ShareBar value={s.queries} max={maxQ} /></div></div></td>
                   </tr>
                 ))}
               </tbody>
