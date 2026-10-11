@@ -415,7 +415,7 @@ export function registerApi(app: FastifyInstance, getRouter: () => RouterCollect
     const s = getSettings();
     const hs = hourStart(from);
     const ru = rollup(from, secs);
-    const dev = q.device ? Number(q.device) : null;
+    const dev = q.device && Number.isInteger(Number(q.device)) ? Number(q.device) : null;
     const devFilter = dev ? `AND f.device_id = ${dev}` : '';
     const countries = db.prepare(`SELECT NULLIF(f.cc, '') AS cc, SUM(f.up) AS up, SUM(f.down) AS down, COUNT(DISTINCT f.device_id) AS devices, SUM(f.conns) AS conns
       FROM ${ru.geo} f WHERE f.ts >= ? ${devFilter} GROUP BY f.cc ORDER BY SUM(up) + SUM(down) DESC`).all(ru.start);
