@@ -243,11 +243,32 @@ export function parseWifi(raw: RawWifi): WifiRadio[] {
   });
 }
 
-export function parseSms(raw: RawSms) {
-  return (raw?.msg ?? []).map((m) => ({
-    index: m.index as number | undefined,
-    sender: String(m.sender ?? ''),
-    timestamp: String(m.timestamp ?? ''),
-    content: String(m.content ?? ''),
-  }));
+export interface Sms { index?: number; sender: string; timestamp: string; content: string }
+
+/** sms_tool -j recv: one entry per segment; multipart messages carry reference/part/total. */
+export function parseSms(raw: RawSms): Sms[] {
+  const out: Array<Sms & { parts?: Map<number, string>; total?: number }> = [];
+  const multi = new Map<string, Sms & { parts: Map<number, string>; total: number }>();
+  for (const m of raw?.msg ?? []) {
+    if (m.error) continue;
+    const base = { index: m.index as number | undefined, sender: String(m.sender ?? ''), timestamp: String(m.timestamp ?? ''), content: String(m.content ?? '') };
+    if (typeof m.reference === 'number' && typeof m.total === 'number' && m.total > 1) {
+      const key = `${base.sender}|${m.reference}|${m.total}`;
+      let e = multi.get(key);
+      if (!e) {
+        e = { ...base, content: '', parts: new Map(), total: m.total };
+        multi.set(key, e);
+        out.push(e);
+      }
+      e.parts.set(Number(m.part ?? 0), base.content);
+      if (Number(m.part) === 1) e.timestamp = base.timestamp;
+      continue;
+    }
+    out.push(base);
+  }
+  return out.map((e) => {
+    if (!e.parts) return e;
+    const parts = [...e.parts.entries()].sort((a, b) => a[0] - b[0]).map((p) => p[1]);
+    return { index: e.index, sender: e.sender, timestamp: e.timestamp, content: parts.join('') + (parts.length < (e.total ?? 0) ? ' […]' : '') };
+  });
 }

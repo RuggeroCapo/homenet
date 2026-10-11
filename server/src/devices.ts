@@ -84,6 +84,14 @@ function create(mac: string, ip: string | null, hostname: string | null): number
   return id;
 }
 
+/** Placeholder ids merged into real devices; in-memory buckets may still reference them. */
+const mergedInto = new Map<number, number>();
+export function resolveDevice(id: number): number {
+  let cur = id;
+  for (let i = 0; i < 5 && mergedInto.has(cur); i++) cur = mergedInto.get(cur)!;
+  return cur;
+}
+
 /** Moves all history of a placeholder device into the real one, then deletes the placeholder. */
 function mergeDevice(from: number, to: number) {
   db.transaction(() => {
@@ -98,6 +106,7 @@ function mergeDevice(from: number, to: number) {
     db.prepare('UPDATE events SET device_id = ? WHERE device_id = ?').run(to, from);
     db.prepare('DELETE FROM devices WHERE id = ?').run(from);
   })();
+  mergedInto.set(from, to);
   const last = lastActive.get(from);
   if (last) markActive(to, last);
   lastActive.delete(from);

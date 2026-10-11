@@ -118,8 +118,13 @@ export function prune(retentionDays: number) {
     db.prepare('DELETE FROM kv WHERE key LIKE \'seen:%\' AND ts < ?').run(cutoff);
     // pseudo devices (no MAC) that have not been seen for the whole window
     db.prepare("DELETE FROM devices WHERE mac LIKE 'ip:%' AND last_seen < ?").run(cutoff);
+    // domains no longer referenced anywhere (random CDN sub-domains pile up otherwise)
+    db.prepare(`DELETE FROM domains WHERE id NOT IN (SELECT domain_id FROM dns_1h)
+      AND id NOT IN (SELECT domain_id FROM flows_1h WHERE domain_id IS NOT NULL)
+      AND id NOT IN (SELECT domain_id FROM ip_domain)`).run();
   });
   tx();
+  domainCache.clear();
   db.pragma('incremental_vacuum');
   db.pragma('wal_checkpoint(TRUNCATE)');
 }

@@ -93,7 +93,8 @@ export async function initGeo() {
     try {
       await download(name, dest);
     } catch (e) {
-      log.warn(String(e));
+      const cause = e instanceof Error && e.cause instanceof Error ? `: ${e.cause.message}` : '';
+      log.warn(`geo: download of ${name} failed (${String(e)}${cause}); will retry in 1 hour`);
     }
   }
   open();

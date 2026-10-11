@@ -14,6 +14,7 @@ need=""
 command -v jsonfilter >/dev/null 2>&1 || need="$need jsonfilter"
 if [ -n "$need" ]; then echo "Installing:$need"; $UPD >/dev/null; $ADD $need; fi
 
+mkdir -p /usr/libexec/rpcd /usr/share/rpcd/acl.d /etc/sysctl.d
 cp "$DIR/homenet" /usr/libexec/rpcd/homenet
 chmod 0755 /usr/libexec/rpcd/homenet
 cp "$DIR/homenet.acl.json" /usr/share/rpcd/acl.d/homenet.json

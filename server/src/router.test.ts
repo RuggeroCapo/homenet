@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { parseInfo, parseModem } from './router.js';
+import { parseInfo, parseModem, parseSms } from './router.js';
 
 test('parses Quectel AT output', () => {
   const m = parseModem({
@@ -47,4 +47,16 @@ test('detects WAN interfaces, LAN subnets and WAN counters', () => {
   assert.deepEqual(info.lan4, [['192.168.1.1', 24]]);
   assert.deepEqual(info.lan6, [['2a01:db8:1::', 64]]);
   assert.deepEqual(info.wanCounters, { rx: 1000, tx: 200 });
+});
+
+test('merges multipart SMS from sms_tool', () => {
+  const sms = parseSms({ msg: [
+    { index: 0, sender: 'TIM', timestamp: '10/10/26 09:12:44', content: 'Ciao' },
+    { index: 1, sender: '40916', timestamp: '11/10/26 07:30:02', reference: 12, part: 2, total: 2, content: ' mondo' },
+    { index: 2, sender: '40916', timestamp: '11/10/26 07:30:01', reference: 12, part: 1, total: 2, content: 'Hello' },
+    { index: 3, error: 'error decoding pdu', sender: '', timestamp: '', content: '' },
+  ] });
+  assert.equal(sms.length, 2);
+  assert.equal(sms[1].content, 'Hello mondo');
+  assert.equal(sms[1].timestamp, '11/10/26 07:30:01');
 });

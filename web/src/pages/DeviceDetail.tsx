@@ -139,8 +139,9 @@ export function DeviceDetail({ id, range, setRange }: PageProps & { id: number }
                         <div className="hstack" style={{ gap: 8 }}>
                           {x.flagged && <ShieldAlert size={16} color="var(--err)" aria-label="In watchlist" />}
                           <div style={{ minWidth: 0 }}>
-                            <div className="name">{x.domain ?? x.ip}</div>
+                            <div className="name">{x.domain ?? (x.ip.startsWith('*') ? 'Altri indirizzi' : x.ip)}</div>
                             {x.domain && <div className="meta num">{x.ip}</div>}
+                            {x.ip.startsWith('*') && <div className="meta">Molte destinazioni diverse, raggruppate per paese</div>}
                           </div>
                         </div>
                       </td>

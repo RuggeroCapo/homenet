@@ -2,7 +2,7 @@
 import { getDomain } from 'tldts';
 import { isBlocked, type AdGuardApi, type QueryLogEntry } from '../adguard.js';
 import { db, domainId, kvGet, kvSet } from '../db.js';
-import { deviceForIp, markActive } from '../devices.js';
+import { deviceForIp, markActive, resolveDevice } from '../devices.js';
 import { collectorError, collectorOk } from '../state.js';
 import { rememberIpDomain } from './flows.js';
 
@@ -38,6 +38,7 @@ export function flushDns() {
   if (!buckets.size) return;
   const rows = [...buckets.values()];
   buckets.clear();
+  for (const r of rows) r.dev = resolveDevice(r.dev);
   db.transaction(() => { for (const r of rows) upsert.run(r); })();
 }
 

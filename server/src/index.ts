@@ -6,13 +6,13 @@ import { fileURLToPath } from 'node:url';
 import { AdGuardClient, type AdGuardApi } from './adguard.js';
 import { registerApi } from './api.js';
 import { DnsCollector, flushDns } from './collectors/dns.js';
-import { flushFlows } from './collectors/flows.js';
+import { flushFlows, reloadIpDomain } from './collectors/flows.js';
 import { Probe } from './collectors/probe.js';
 import { RouterCollector } from './collectors/router.js';
 import { Watchdog } from './collectors/watchdog.js';
 import { db, prune } from './db.js';
 import { refreshOnline } from './devices.js';
-import { initGeo } from './geo.js';
+import { geoStatus, initGeo } from './geo.js';
 import { log } from './log.js';
 import { UbusClient, type RouterApi } from './router.js';
 import { adguardConfigured, DEMO, getSettings, onSettingsChange, routerConfigured, type Settings } from './settings.js';
@@ -66,10 +66,13 @@ async function main() {
   setInterval(() => { flushFlows(); flushDns(); }, 60_000);
   setInterval(refreshOnline, 60_000);
   setTimeout(refreshOnline, 20_000);
-  const doPrune = () => { try { prune(getSettings().retentionDays); } catch (e) { log.error('prune', e); } };
+  const doPrune = () => {
+    try { flushFlows(); flushDns(); prune(getSettings().retentionDays); reloadIpDomain(); } catch (e) { log.error('prune', e); }
+  };
   setTimeout(doPrune, 30_000);
   setInterval(doPrune, 6 * 3600_000);
-  setInterval(() => void initGeo(), 7 * 86400_000);
+  // refresh monthly DBs weekly; retry hourly while they are missing (e.g. no internet at boot)
+  setInterval(() => { if (!geoStatus().loaded || !geoStatus().asn || new Date().getHours() === 4) void initGeo(); }, 3600_000);
 
   const app = Fastify({ logger: false, bodyLimit: 256 * 1024 });
   registerApi(app, () => routerCollector);

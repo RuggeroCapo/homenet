@@ -1,6 +1,6 @@
 // Turns conntrack byte deltas into hourly per-device/per-destination rows and 5-minute device counters.
-import { db, kvSet } from '../db.js';
-import { deviceForIp, displayName, getDevice, isLan, markActive } from '../devices.js';
+import { db, kvGet, kvSet } from '../db.js';
+import { deviceForIp, displayName, getDevice, isLan, markActive, resolveDevice } from '../devices.js';
 import { addEventOnce, countryName, fmtBytes } from '../events.js';
 import { lookup } from '../geo.js';
 import type { FlowRow } from '../router.js';
@@ -26,9 +26,27 @@ export function rememberIpDomain(ip: string, domainId: number) {
   dirtyIpDomain.set(ip, domainId);
 }
 
+/** Re-reads the ip → domain map after a prune (domain ids may have been deleted). */
+export function reloadIpDomain() {
+  ipDomain.clear();
+  for (const r of db.prepare('SELECT ip, domain_id FROM ip_domain ORDER BY ts').all() as Array<{ ip: string; domain_id: number }>) {
+    ipDomain.set(r.ip, r.domain_id);
+  }
+}
+
+/**
+ * A P2P/torrent client can talk to thousands of peers per hour. To keep the database bounded,
+ * after MAX_DEST_PER_HOUR distinct destinations a device's extra traffic is folded into one
+ * row per country (ip = "*CC"), which keeps per-country and per-device totals exact.
+ */
+export const MAX_DEST_PER_HOUR = 400;
+const destSeen = new Map<string, Set<string>>();
+let destHour = 0;
+
 export function ingestFlows(rows: FlowRow[], at = Math.floor(Date.now() / 1000)) {
   const hour = at - (at % 3600);
   const five = at - (at % 300);
+  if (hour !== destHour) { destSeen.clear(); destHour = hour; }
   for (const [proto, src, , dst, dport, dOrig, rsrc, dReply, isNew] of rows) {
     let lanIp: string, remote: string, up: number, down: number;
     if (isLan(src) && !isLan(dst)) {
@@ -40,15 +58,27 @@ export function ingestFlows(rows: FlowRow[], at = Math.floor(Date.now() / 1000))
     const dev = deviceForIp(lanIp);
     markActive(dev, at);
     const p = PROTO[proto] ?? 0;
-    const key = `${hour}|${dev}|${remote}|${p}|${dport}`;
+    let ip = remote, port = dport;
+    const destKey = `${remote}|${p}|${dport}`;
+    let seen = destSeen.get(`${dev}`);
+    if (!seen) destSeen.set(`${dev}`, (seen = new Set()));
+    let g: ReturnType<typeof lookup> | null = null;
+    if (!seen.has(destKey)) {
+      if (seen.size >= MAX_DEST_PER_HOUR) {
+        g = lookup(remote);
+        ip = `*${g.cc ?? '??'}`; port = 0;
+      } else seen.add(destKey);
+    }
+    const key = `${hour}|${dev}|${ip}|${p}|${port}`;
     let f = flows.get(key);
     if (!f) {
-      const g = lookup(remote);
-      f = { ts: hour, dev, ip: remote, proto: p, port: dport, up: 0, down: 0, conns: 0, cc: g.cc, asn: g.asn, domain: ipDomain.get(remote) ?? null };
+      g ??= lookup(remote);
+      const folded = ip !== remote;
+      f = { ts: hour, dev, ip, proto: p, port, up: 0, down: 0, conns: 0, cc: g.cc, asn: folded ? null : g.asn, domain: folded ? null : ipDomain.get(remote) ?? null };
       flows.set(key, f);
     }
     f.up += up; f.down += down; f.conns += isNew ? 1 : 0;
-    if (f.domain === null) f.domain = ipDomain.get(remote) ?? null;
+    if (f.domain === null && ip === remote) f.domain = ipDomain.get(remote) ?? null;
     const tk = `${five}|${dev}`;
     let t = traffic.get(tk);
     if (!t) traffic.set(tk, (t = { ts: five, dev, up: 0, down: 0 }));
@@ -64,8 +94,11 @@ const upTraffic = db.prepare(`INSERT INTO traffic_5m (ts, device_id, up, down) V
   ON CONFLICT(ts, device_id) DO UPDATE SET up = up + excluded.up, down = down + excluded.down`);
 const upIpDomain = db.prepare('INSERT INTO ip_domain (ip, domain_id, ts) VALUES (?, ?, ?) ON CONFLICT(ip) DO UPDATE SET domain_id = excluded.domain_id, ts = excluded.ts');
 
-/** Daily per-device totals towards watch-listed countries / networks, used for alerts. */
-const watchTotals = new Map<string, number>();
+function dayStart(ts: number) {
+  const d = new Date(ts * 1000);
+  d.setHours(0, 0, 0, 0);
+  return Math.floor(d.getTime() / 1000);
+}
 
 function checkWatchlist(f: FlowAgg) {
   const s = getSettings().watchlist;
@@ -76,13 +109,15 @@ function checkWatchlist(f: FlowAgg) {
   const day = new Date(f.ts * 1000).toISOString().slice(0, 10);
   const target = ccHit ? f.cc! : `AS${f.asn}`;
   const key = `watch:${day}:${f.dev}:${target}`;
-  const total = (watchTotals.get(key) ?? 0) + f.up + f.down;
-  watchTotals.set(key, total);
-  if (total < s.minBytes) return;
+  if (kvGet<number | null>(`seen:${key}`, null) !== null) return;
+  const total = (ccHit
+    ? db.prepare('SELECT SUM(up + down) AS t FROM flows_1h WHERE device_id = ? AND ts >= ? AND cc = ?').get(f.dev, dayStart(f.ts), f.cc)
+    : db.prepare('SELECT SUM(up + down) AS t FROM flows_1h WHERE device_id = ? AND ts >= ? AND asn = ?').get(f.dev, dayStart(f.ts), f.asn)) as { t: number | null };
+  if ((total.t ?? 0) < s.minBytes) return;
   const d = getDevice(f.dev);
   const name = d ? displayName(d) : `#${f.dev}`;
   const where = ccHit ? `${countryName(f.cc)} (${f.cc})` : org;
-  addEventOnce(key, 'geo_alert', 'warning', `Traffico verso ${where}`, `${name} · ${fmtBytes(total)} oggi${org && ccHit ? ` · ${org}` : ''}`, f.dev);
+  addEventOnce(key, 'geo_alert', 'warning', `Traffico verso ${where}`, `${name} · ${fmtBytes(total.t ?? 0)} oggi${org && ccHit ? ` · ${org}` : ''}`, f.dev);
 }
 
 export function flushFlows() {
@@ -92,6 +127,8 @@ export function flushFlows() {
   const now = Math.floor(Date.now() / 1000);
   flows.clear();
   traffic.clear();
+  for (const f of batch) f.dev = resolveDevice(f.dev);
+  for (const t of tBatch) t.dev = resolveDevice(t.dev);
   db.transaction(() => {
     for (const f of batch) upFlow.run(f);
     for (const t of tBatch) upTraffic.run(t);
@@ -99,6 +136,5 @@ export function flushFlows() {
   })();
   dirtyIpDomain.clear();
   for (const f of batch) if (f.up + f.down > 0) checkWatchlist(f);
-  if (watchTotals.size > 5000) watchTotals.clear();
   kvSet('last_flow_flush', now);
 }
