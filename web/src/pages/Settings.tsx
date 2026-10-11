@@ -51,6 +51,7 @@ export function Settings() {
   useEffect(() => { if (data && !s) setS(data); }, [data, s]);
   if (!s) return <><PageHead title="Impostazioni" /><Skeleton h={500} /></>;
 
+  const dirty = !!data && JSON.stringify(s) !== JSON.stringify(data);
   const set = <K extends keyof SettingsData>(k: K, v: Partial<SettingsData[K]>) => setS({ ...s, [k]: typeof v === 'object' && !Array.isArray(v) ? { ...(s[k] as object), ...v } : v });
   const save = async () => {
     setSaving(true);
@@ -82,7 +83,8 @@ export function Settings() {
   return (
     <>
       <PageHead title="Impostazioni" subtitle="Collegamenti, watchdog, watchlist e conservazione dei dati.">
-        <button className="btn primary" onClick={save} disabled={saving}><Save />{saving ? 'Salvataggio…' : 'Salva modifiche'}</button>
+        {dirty && <span className="pill warn">Modifiche non salvate</span>}
+        <button className="btn primary" onClick={save} disabled={saving || !dirty}><Save />{saving ? 'Salvataggio…' : 'Salva modifiche'}</button>
       </PageHead>
       {status?.demo && <div className="banner info"><Plug /><div>Modalità demo attiva (DEMO=1): router e AdGuard sono simulati, le impostazioni di connessione vengono ignorate.</div></div>}
       <div className="grid g-2">
