@@ -116,7 +116,7 @@ function DevicesCard({ d }: { d: OverviewData }) {
       {list.length === 0 ? <Empty icon={Monitor}>Nessun traffico registrato ancora</Empty> : (
         <div className="rows">
           {list.map((x) => (
-            <a key={x.id} href={`#/devices/${x.id}`} className="row-item" style={{ gridTemplateColumns: '40px minmax(0,1.3fr) 90px minmax(80px,1.4fr)' }}>
+            <a key={x.id} href={`#/devices/${x.id}`} className="row-item dev-row" style={{ gridTemplateColumns: '40px minmax(0,1.3fr) 90px minmax(80px,1.4fr)' }}>
               <DeviceIcon kind={x.kind} color={seriesColor(x.id)} />
               <div style={{ minWidth: 0 }}>
                 <div className="name">{x.name}</div>
@@ -142,14 +142,14 @@ function ServicesCard({ d }: { d: OverviewData }) {
       <CardHead icon={Globe} title="Servizi più contattati" href="#/services" sub={`${fmtNum(d.dns.queries)} query DNS · ${fmtPct(d.dns.queries ? d.dns.blocked / d.dns.queries : 0, 1)} bloccate`} />
       {d.services.length === 0 ? <Empty>Nessuna query DNS ricevuta da AdGuard</Empty> : (
         <table className="tbl">
-          <thead><tr><th>Dominio</th><th>Categoria</th><th className="r">Query</th><th className="r">Traffico</th><th style={{ width: '24%' }}>%</th></tr></thead>
+          <thead><tr><th>Dominio</th><th className="hide-sm">Categoria</th><th className="r">Query</th><th className="r hide-sm">Traffico</th><th style={{ width: '24%' }}>%</th></tr></thead>
           <tbody>
             {d.services.map((s) => (
               <tr key={s.base} className="click" onClick={() => { window.location.hash = `/services/${encodeURIComponent(s.base)}`; }}>
                 <td><div className="hstack" style={{ gap: 10 }}><LetterAvatar text={s.base} color={hashColor(s.base)} size="sm" /><span className="name">{s.base}</span></div></td>
-                <td className="muted">{s.category}</td>
+                <td className="muted hide-sm">{s.category}</td>
                 <td className="r num">{fmtNum(s.queries)}</td>
-                <td className="r num muted">{s.up + s.down ? fmtBytes(s.up + s.down) : '—'}</td>
+                <td className="r num muted hide-sm">{s.up + s.down ? fmtBytes(s.up + s.down) : '—'}</td>
                 <td><div className="hstack" style={{ gap: 10 }}><span className="num meta" style={{ width: 34 }}>{fmtPct(s.pct)}</span><div className="bar" style={{ flex: 1 }}><i style={{ width: `${Math.max(3, s.pct * 100 / Math.max(...d.services.map((x) => x.pct)))}%`, background: 'var(--s1)' }} /></div></div></td>
               </tr>
             ))}

@@ -28,6 +28,40 @@ releaseNotes: >-
   First release.
 dependencies:
   - adguard-home
+widgets:
+  - id: "status"
+    type: "four-stats"
+    refresh: "10s"
+    endpoint: "server:3000/api/widget/status"
+    link: ""
+    example:
+      type: "four-stats"
+      link: ""
+      items:
+        - title: "Internet"
+          text: "Online"
+          subtext: ""
+        - title: "Latenza"
+          text: "18"
+          subtext: "ms"
+        - title: "Download"
+          text: "42"
+          subtext: "Mbps"
+        - title: "Dispositivi"
+          text: "12"
+          subtext: "online"
+  - id: "usage"
+    type: "text-with-progress"
+    refresh: "5m"
+    endpoint: "server:3000/api/widget/usage"
+    link: "/#/monitor"
+    example:
+      type: "text-with-progress"
+      link: "/#/monitor"
+      title: "Dati LTE nel ciclo"
+      text: "64 GB"
+      progressLabel: "di 150 GB · stima 120 GB"
+      progress: 0.43
 path: ""
 defaultUsername: ""
 defaultPassword: ""

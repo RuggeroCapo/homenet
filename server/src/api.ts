@@ -204,6 +204,38 @@ export function registerApi(app: FastifyInstance, getRouter: () => RouterCollect
     acct: state.router?.acct ?? true,
   }));
 
+  // ---- umbrelOS home-screen widgets (fetched by umbreld at server:3000) ----
+  app.get('/api/widget/status', async () => {
+    const live = state.live.at(-1);
+    const mbps = live ? live[1] / 1e6 : null;
+    const online = (db.prepare('SELECT COUNT(*) AS n FROM devices WHERE online = 1').get() as { n: number }).n;
+    return {
+      type: 'four-stats',
+      link: '',
+      items: [
+        { title: 'Internet', text: state.internet.online ? 'Online' : 'Offline', subtext: '' },
+        { title: 'Latenza', text: state.internet.latency !== null ? String(state.internet.latency) : '—', subtext: 'ms' },
+        { title: 'Download', text: mbps === null ? '—' : mbps >= 10 ? mbps.toFixed(0) : mbps.toFixed(1), subtext: 'Mbps' },
+        { title: 'Dispositivi', text: String(online), subtext: 'online' },
+      ],
+    };
+  });
+
+  app.get('/api/widget/usage', async () => {
+    const u = dataUsage();
+    const gb = (b: number) => (b / 1e9).toLocaleString('it-IT', { maximumFractionDigits: b >= 1e11 ? 0 : 1 });
+    return {
+      type: 'text-with-progress',
+      link: '/#/monitor',
+      title: u.kind === 'lte' ? 'Dati LTE nel ciclo' : 'Dati WAN nel ciclo',
+      text: `${gb(u.used)} GB`,
+      progressLabel: u.quota ? `di ${gb(u.quota)} GB · stima ${gb(u.projected)} GB` : `stima fine ciclo ${gb(u.projected)} GB`,
+      progress: u.quota ? Math.min(1, u.used / u.quota) : 0,
+    };
+  });
+
+  app.get('/api/health', async () => ({ ok: true }));
+
   app.get('/api/overview', async (req) => cached(req.url, (req.query as { range?: string }).range, () => {
     const { from, to, secs } = range(req.query as { range?: string });
     const s = getSettings();

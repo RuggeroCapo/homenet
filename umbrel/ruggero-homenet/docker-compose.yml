@@ -16,6 +16,8 @@ services:
     mem_limit: 384m
     environment:
       DATA_DIR: /data
+      # local day boundaries for data usage / daily rollups
+      TZ: Europe/Rome
       RETENTION_DAYS: "15"
       # AdGuard Home on Umbrel runs on the host network, web UI on port 8095
       ADGUARD_URL: http://host.docker.internal:8095

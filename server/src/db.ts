@@ -113,7 +113,10 @@ CREATE INDEX IF NOT EXISTS events_ts ON events(ts);
 
 /** Local-midnight bucket for a timestamp (uses the current UTC offset; set TZ for local days). */
 export const TZ_OFFSET = -new Date().getTimezoneOffset() * 60;
-export const dayBucket = (ts: number) => Math.floor((ts + TZ_OFFSET) / 86400) * 86400 - TZ_OFFSET;
+export function dayBucket(ts: number) {
+  const off = -new Date(ts * 1000).getTimezoneOffset() * 60; // per timestamp, so DST changes are handled
+  return Math.floor((ts + off) / 86400) * 86400 - off;
+}
 
 /** One-time rollup back-fill for databases created before the rollup tables existed. */
 export function backfillRollups() {

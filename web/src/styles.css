@@ -273,3 +273,16 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 14px; }
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.12); border-radius: 10px; border: 2px solid transparent; background-clip: padding-box; }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
+
+/* mobile overrides — kept last so they win over the component rules above */
+@media (max-width: 900px) {
+  .head-tools { width: 100%; }
+  .search { flex: 1; min-width: 0; }
+  .search .input { width: 100%; }
+  .hide-sm { display: none !important; }
+  .row-item.dev-row { grid-template-columns: 40px minmax(0, 1fr) auto !important; }
+  .dev-row .chart { display: none; }
+  .card { padding: 18px; }
+  .page-head h1 { font-size: 26px; }
+  .head-tools .select { flex: 1; min-width: 0; }
+}
