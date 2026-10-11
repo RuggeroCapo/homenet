@@ -13,7 +13,7 @@ services:
     init: true
     restart: on-failure
     stop_grace_period: 20s
-    mem_limit: 256m
+    mem_limit: 384m
     environment:
       DATA_DIR: /data
       RETENTION_DAYS: "15"

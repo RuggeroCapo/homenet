@@ -1,5 +1,5 @@
 // Turns conntrack byte deltas into hourly per-device/per-destination rows and 5-minute device counters.
-import { db, kvGet, kvSet } from '../db.js';
+import { baseIdOf, dayBucket, db, kvGet, kvSet } from '../db.js';
 import { deviceForIp, displayName, getDevice, isLan, markActive, resolveDevice } from '../devices.js';
 import { addEventOnce, countryName, fmtBytes } from '../events.js';
 import { lookup } from '../geo.js';
@@ -101,6 +101,12 @@ const upFlow = db.prepare(`INSERT INTO flows_1h (ts, device_id, ip, proto, port,
   conns = conns + excluded.conns, domain_id = COALESCE(excluded.domain_id, domain_id)`);
 const upTraffic = db.prepare(`INSERT INTO traffic_5m (ts, device_id, up, down) VALUES (@ts, @dev, @up, @down)
   ON CONFLICT(ts, device_id) DO UPDATE SET up = up + excluded.up, down = down + excluded.down`);
+const geoSql = (t: string) => db.prepare(`INSERT INTO ${t} (ts, device_id, cc, asn, up, down, conns) VALUES (?, ?, ?, ?, ?, ?, ?)
+  ON CONFLICT(ts, device_id, cc, asn) DO UPDATE SET up = up + excluded.up, down = down + excluded.down, conns = conns + excluded.conns`);
+const baseSql = (t: string) => db.prepare(`INSERT INTO ${t} (ts, device_id, base_id, up, down) VALUES (?, ?, ?, ?, ?)
+  ON CONFLICT(ts, device_id, base_id) DO UPDATE SET up = up + excluded.up, down = down + excluded.down`);
+const upGeo = geoSql('geo_1h'), upGeoDay = geoSql('geo_1d');
+const upBaseBytes = baseSql('base_1h'), upBaseBytesDay = baseSql('base_1d');
 const upIpDomain = db.prepare('INSERT INTO ip_domain (ip, domain_id, ts) VALUES (?, ?, ?) ON CONFLICT(ip) DO UPDATE SET domain_id = excluded.domain_id, ts = excluded.ts');
 
 function dayStart(ts: number) {
@@ -141,6 +147,23 @@ export function flushFlows() {
   db.transaction(() => {
     for (const f of batch) upFlow.run(f);
     for (const t of tBatch) upTraffic.run(t);
+    const geo = new Map<string, [number, number, string, number, number, number, number]>();
+    const base = new Map<string, [number, number, number, number, number]>();
+    for (const f of batch) {
+      const gk = `${f.ts}|${f.dev}|${f.cc ?? ''}|${f.asn ?? 0}`;
+      const g = geo.get(gk) ?? [f.ts, f.dev, f.cc ?? '', f.asn ?? 0, 0, 0, 0];
+      g[4] += f.up; g[5] += f.down; g[6] += f.conns;
+      geo.set(gk, g);
+      if (f.domain !== null) {
+        const b = baseIdOf(f.domain);
+        const bk = `${f.ts}|${f.dev}|${b}`;
+        const r = base.get(bk) ?? [f.ts, f.dev, b, 0, 0];
+        r[3] += f.up; r[4] += f.down;
+        base.set(bk, r);
+      }
+    }
+    for (const g of geo.values()) { upGeo.run(...g); upGeoDay.run(dayBucket(g[0]), ...g.slice(1)); }
+    for (const r of base.values()) { upBaseBytes.run(...r); upBaseBytesDay.run(dayBucket(r[0]), ...r.slice(1)); }
     for (const [ip, id] of dirtyIpDomain) upIpDomain.run(ip, id, now);
   })();
   dirtyIpDomain.clear();

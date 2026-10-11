@@ -76,8 +76,10 @@ function InternetCard({ d }: { d: OverviewData }) {
 }
 
 function TrafficCard({ d }: { d: OverviewData }) {
-  const [rx, rxU] = splitUnit(fmtBps(d.traffic.rx));
-  const [tx, txU] = splitUnit(fmtBps(d.traffic.tx));
+  // live value from the last 10 s poll; right after start-up fall back to the last per-minute average
+  const lastOf = (i: 1 | 2) => [...d.traffic.series].reverse().find((p) => p[i] !== null)?.[i] ?? null;
+  const [rx, rxU] = splitUnit(fmtBps(d.traffic.rx ?? lastOf(1)));
+  const [tx, txU] = splitUnit(fmtBps(d.traffic.tx ?? lastOf(2)));
   const times = d.traffic.series.map((p) => p[0]);
   return (
     <Card>

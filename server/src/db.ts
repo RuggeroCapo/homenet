@@ -61,6 +61,30 @@ CREATE TABLE IF NOT EXISTS dns_1h (
   PRIMARY KEY (ts, device_id, domain_id)
 ) WITHOUT ROWID;
 
+-- rollups maintained at write time so long ranges stay cheap on slow CPUs
+CREATE TABLE IF NOT EXISTS geo_1h (
+  ts INTEGER NOT NULL, device_id INTEGER NOT NULL, cc TEXT NOT NULL, asn INTEGER NOT NULL,
+  up INTEGER NOT NULL, down INTEGER NOT NULL, conns INTEGER NOT NULL,
+  PRIMARY KEY (ts, device_id, cc, asn)
+) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS base_1h (
+  ts INTEGER NOT NULL, device_id INTEGER NOT NULL, base_id INTEGER NOT NULL,
+  queries INTEGER NOT NULL DEFAULT 0, blocked INTEGER NOT NULL DEFAULT 0, up INTEGER NOT NULL DEFAULT 0, down INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (ts, device_id, base_id)
+) WITHOUT ROWID;
+
+-- same rollups per local day, used for ranges longer than 24 h
+CREATE TABLE IF NOT EXISTS geo_1d (
+  ts INTEGER NOT NULL, device_id INTEGER NOT NULL, cc TEXT NOT NULL, asn INTEGER NOT NULL,
+  up INTEGER NOT NULL, down INTEGER NOT NULL, conns INTEGER NOT NULL,
+  PRIMARY KEY (ts, device_id, cc, asn)
+) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS base_1d (
+  ts INTEGER NOT NULL, device_id INTEGER NOT NULL, base_id INTEGER NOT NULL,
+  queries INTEGER NOT NULL DEFAULT 0, blocked INTEGER NOT NULL DEFAULT 0, up INTEGER NOT NULL DEFAULT 0, down INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (ts, device_id, base_id)
+) WITHOUT ROWID;
+
 -- one row per minute: connectivity, throughput and radio signal
 CREATE TABLE IF NOT EXISTS samples (
   ts INTEGER PRIMARY KEY,
@@ -87,6 +111,39 @@ CREATE TABLE IF NOT EXISTS events (
 CREATE INDEX IF NOT EXISTS events_ts ON events(ts);
 `);
 
+/** Local-midnight bucket for a timestamp (uses the current UTC offset; set TZ for local days). */
+export const TZ_OFFSET = -new Date().getTimezoneOffset() * 60;
+export const dayBucket = (ts: number) => Math.floor((ts + TZ_OFFSET) / 86400) * 86400 - TZ_OFFSET;
+
+/** One-time rollup back-fill for databases created before the rollup tables existed. */
+export function backfillRollups() {
+  const empty = (t: string) => db.prepare(`SELECT 1 FROM ${t} LIMIT 1`).get() === undefined;
+  if (empty('geo_1h') && !empty('flows_1h')) {
+    db.exec(`INSERT INTO geo_1h (ts, device_id, cc, asn, up, down, conns)
+      SELECT ts, device_id, COALESCE(cc, ''), COALESCE(asn, 0), SUM(up), SUM(down), SUM(conns) FROM flows_1h GROUP BY ts, device_id, COALESCE(cc, ''), COALESCE(asn, 0)`);
+  }
+  if (empty('base_1h') && !empty('dns_1h')) {
+    db.exec(`INSERT OR IGNORE INTO domains (name, base) SELECT DISTINCT base, base FROM domains`);
+    db.exec(`INSERT INTO base_1h (ts, device_id, base_id, queries, blocked)
+      SELECT q.ts, q.device_id, b.id, SUM(q.queries), SUM(q.blocked) FROM dns_1h q JOIN domains d ON d.id = q.domain_id JOIN domains b ON b.name = d.base
+      GROUP BY q.ts, q.device_id, b.id`);
+    db.exec(`INSERT INTO base_1h (ts, device_id, base_id, up, down)
+      SELECT f.ts, f.device_id, b.id, SUM(f.up), SUM(f.down) FROM flows_1h f JOIN domains d ON d.id = f.domain_id JOIN domains b ON b.name = d.base
+      GROUP BY f.ts, f.device_id, b.id
+      ON CONFLICT(ts, device_id, base_id) DO UPDATE SET up = up + excluded.up, down = down + excluded.down`);
+  }
+  const day = `((ts + ${TZ_OFFSET}) / 86400 * 86400 - ${TZ_OFFSET})`;
+  if (empty('geo_1d') && !empty('geo_1h')) {
+    db.exec(`INSERT INTO geo_1d (ts, device_id, cc, asn, up, down, conns)
+      SELECT ${day}, device_id, cc, asn, SUM(up), SUM(down), SUM(conns) FROM geo_1h GROUP BY 1, device_id, cc, asn`);
+  }
+  if (empty('base_1d') && !empty('base_1h')) {
+    db.exec(`INSERT INTO base_1d (ts, device_id, base_id, queries, blocked, up, down)
+      SELECT ${day}, device_id, base_id, SUM(queries), SUM(blocked), SUM(up), SUM(down) FROM base_1h GROUP BY 1, device_id, base_id`);
+  }
+}
+backfillRollups();
+
 export function kvGet<T>(key: string, fallback: T): T {
   const row = db.prepare('SELECT value FROM kv WHERE key = ?').get(key) as { value: string } | undefined;
   return row ? (JSON.parse(row.value) as T) : fallback;
@@ -100,6 +157,18 @@ export function kvSet(key: string, value: unknown) {
 const domainCache = new Map<string, number>();
 const insDomain = db.prepare('INSERT OR IGNORE INTO domains (name, base) VALUES (?, ?)');
 const getDomain = db.prepare('SELECT id FROM domains WHERE name = ?');
+
+const baseCache = new Map<number, number>();
+/** id of the registrable-domain row ("google.com") for any domain id */
+export function baseIdOf(id: number): number {
+  let b = baseCache.get(id);
+  if (b !== undefined) return b;
+  const row = db.prepare('SELECT base FROM domains WHERE id = ?').get(id) as { base: string } | undefined;
+  b = row ? domainId(row.base, row.base) : id;
+  if (baseCache.size > 50_000) baseCache.clear();
+  baseCache.set(id, b);
+  return b;
+}
 
 export function domainId(name: string, base: string): number {
   let id = domainCache.get(name);
@@ -118,6 +187,10 @@ export function prune(retentionDays: number) {
     db.prepare('DELETE FROM traffic_5m WHERE ts < ?').run(cutoff);
     db.prepare('DELETE FROM flows_1h WHERE ts < ?').run(cutoff);
     db.prepare('DELETE FROM dns_1h WHERE ts < ?').run(cutoff);
+    db.prepare('DELETE FROM geo_1h WHERE ts < ?').run(cutoff);
+    db.prepare('DELETE FROM base_1h WHERE ts < ?').run(cutoff);
+    db.prepare('DELETE FROM geo_1d WHERE ts < ?').run(dayBucket(cutoff));
+    db.prepare('DELETE FROM base_1d WHERE ts < ?').run(dayBucket(cutoff));
     db.prepare('DELETE FROM samples WHERE ts < ?').run(cutoff);
     db.prepare('DELETE FROM events WHERE ts < ?').run(cutoff);
     db.prepare('DELETE FROM ip_domain WHERE ts < ?').run(cutoff);
@@ -128,10 +201,11 @@ export function prune(retentionDays: number) {
     // domains no longer referenced anywhere (random CDN sub-domains pile up otherwise)
     db.prepare(`DELETE FROM domains WHERE id NOT IN (SELECT domain_id FROM dns_1h)
       AND id NOT IN (SELECT domain_id FROM flows_1h WHERE domain_id IS NOT NULL)
-      AND id NOT IN (SELECT domain_id FROM ip_domain)`).run();
+      AND id NOT IN (SELECT domain_id FROM ip_domain) AND id NOT IN (SELECT base_id FROM base_1h) AND id NOT IN (SELECT base_id FROM base_1d)`).run();
   });
   tx();
   domainCache.clear();
+  baseCache.clear();
   db.pragma('incremental_vacuum');
   db.pragma('wal_checkpoint(TRUNCATE)');
 }

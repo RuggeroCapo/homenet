@@ -102,7 +102,15 @@ function mergeDevice(from: number, to: number) {
       ON CONFLICT(ts, device_id, ip, proto, port) DO UPDATE SET up = up + excluded.up, down = down + excluded.down, conns = conns + excluded.conns`).run(to, from);
     db.prepare(`INSERT INTO dns_1h (ts, device_id, domain_id, queries, blocked) SELECT ts, ?, domain_id, queries, blocked FROM dns_1h WHERE device_id = ?
       ON CONFLICT(ts, device_id, domain_id) DO UPDATE SET queries = queries + excluded.queries, blocked = blocked + excluded.blocked`).run(to, from);
-    for (const t of ['traffic_5m', 'flows_1h', 'dns_1h']) db.prepare(`DELETE FROM ${t} WHERE device_id = ?`).run(from);
+    for (const g of ['geo_1h', 'geo_1d']) {
+      db.prepare(`INSERT INTO ${g} (ts, device_id, cc, asn, up, down, conns) SELECT ts, ?, cc, asn, up, down, conns FROM ${g} WHERE device_id = ?
+        ON CONFLICT(ts, device_id, cc, asn) DO UPDATE SET up = up + excluded.up, down = down + excluded.down, conns = conns + excluded.conns`).run(to, from);
+    }
+    for (const b of ['base_1h', 'base_1d']) {
+      db.prepare(`INSERT INTO ${b} (ts, device_id, base_id, queries, blocked, up, down) SELECT ts, ?, base_id, queries, blocked, up, down FROM ${b} WHERE device_id = ?
+        ON CONFLICT(ts, device_id, base_id) DO UPDATE SET queries = queries + excluded.queries, blocked = blocked + excluded.blocked, up = up + excluded.up, down = down + excluded.down`).run(to, from);
+    }
+    for (const t of ['traffic_5m', 'flows_1h', 'dns_1h', 'geo_1h', 'base_1h', 'geo_1d', 'base_1d']) db.prepare(`DELETE FROM ${t} WHERE device_id = ?`).run(from);
     db.prepare('UPDATE events SET device_id = ? WHERE device_id = ?').run(to, from);
     db.prepare('DELETE FROM devices WHERE id = ?').run(from);
   })();

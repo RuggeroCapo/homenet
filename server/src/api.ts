@@ -3,7 +3,7 @@ import { AdGuardClient } from './adguard.js';
 import { categoryOf } from './categories.js';
 import type { RouterCollector } from './collectors/router.js';
 import { runAction } from './collectors/watchdog.js';
-import { db, dbSizeBytes, localDay } from './db.js';
+import { dayBucket, db, dbSizeBytes, localDay } from './db.js';
 import { displayName, getDevice, type DeviceRow } from './devices.js';
 import { geoStatus } from './geo.js';
 import { UbusClient } from './router.js';
@@ -26,6 +26,11 @@ function range(q: { range?: string }) {
 const trafficBucket = (secs: number) => (secs <= 86400 ? 300 : secs <= 7 * 86400 ? 3600 : 7200);
 const sampleBucket = (secs: number) => (secs <= 3600 ? 60 : secs <= 86400 ? 300 : secs <= 7 * 86400 ? 1800 : 3600);
 const hourStart = (t: number) => t - (t % 3600);
+
+/** Rollup tables + bucket start for a range: hourly up to 24 h, daily beyond. */
+function rollup(from: number, secs: number) {
+  return secs > 86400 ? { geo: 'geo_1d', base: 'base_1d', start: dayBucket(from) } : { geo: 'geo_1h', base: 'base_1h', start: hourStart(from) };
+}
 
 function axis(from: number, to: number, b: number) {
   const start = Math.floor(from / b) * b + b;
@@ -119,22 +124,29 @@ function watchClause(s: Settings) {
   return parts.length ? `(${parts.join(' OR ')})` : '0';
 }
 
-function topServices(from: number, limit: number, deviceId?: number) {
-  const devFilter = deviceId ? 'AND q.device_id = ?' : '';
-  const args: unknown[] = [hourStart(from)];
-  if (deviceId) args.push(deviceId);
-  const rows = db.prepare(`SELECT d.base AS base, SUM(q.queries) AS queries, SUM(q.blocked) AS blocked, COUNT(DISTINCT q.device_id) AS devices
-    FROM dns_1h q JOIN domains d ON d.id = q.domain_id WHERE q.ts >= ? ${devFilter}
-    GROUP BY d.base ORDER BY queries DESC LIMIT ${limit}`).all(...args) as Array<{ base: string; queries: number; blocked: number; devices: number }>;
-  return rows;
+/** Registrable domains ranked by DNS queries, with bytes, from the base_1h rollup. */
+function topServices(from: number, secs: number, limit: number) {
+  const r = rollup(from, secs);
+  return db.prepare(`SELECT d.name AS base, SUM(b.queries) AS queries, SUM(b.blocked) AS blocked, COUNT(DISTINCT b.device_id) AS devices,
+      SUM(b.up) AS up, SUM(b.down) AS down
+    FROM ${r.base} b JOIN domains d ON d.id = b.base_id WHERE b.ts >= ?
+    GROUP BY b.base_id HAVING queries > 0 ORDER BY queries DESC LIMIT ${limit}`).all(r.start) as Array<{ base: string; queries: number; blocked: number; devices: number; up: number; down: number }>;
 }
 
-function serviceBytes(from: number, bases: string[]) {
-  if (!bases.length) return new Map<string, { up: number; down: number }>();
-  const rows = db.prepare(`SELECT d.base AS base, SUM(f.up) AS up, SUM(f.down) AS down FROM flows_1h f JOIN domains d ON d.id = f.domain_id
-    WHERE f.ts >= ? AND d.base IN (${bases.map(() => '?').join(',')}) GROUP BY d.base`).all(hourStart(from), ...bases) as Array<{ base: string; up: number; down: number }>;
-  return new Map(rows.map((r) => [r.base, { up: r.up, down: r.down }]));
+// ---- response cache: long ranges are expensive on a 2011 CPU and change slowly ----
+const cache = new Map<string, { at: number; value: unknown }>();
+const TTL: Record<string, number> = { '1h': 0, '24h': 20_000, '7d': 90_000, '15d': 120_000, '30d': 180_000 };
+async function cached<T>(url: string, rangeKey: string | undefined, fn: () => T): Promise<T> {
+  const ttl = TTL[rangeKey ?? '24h'] ?? 20_000;
+  if (!ttl) return fn();
+  const hit = cache.get(url);
+  if (hit && Date.now() - hit.at < ttl) return hit.value as T;
+  const value = fn();
+  if (cache.size > 200) cache.clear();
+  cache.set(url, { at: Date.now(), value });
+  return value;
 }
+export function clearApiCache() { cache.clear(); }
 
 function recentEvents(limit: number, before?: number, deviceId?: number) {
   const where: string[] = [];
@@ -192,7 +204,7 @@ export function registerApi(app: FastifyInstance, getRouter: () => RouterCollect
     acct: state.router?.acct ?? true,
   }));
 
-  app.get('/api/overview', async (req) => {
+  app.get('/api/overview', async (req) => cached(req.url, (req.query as { range?: string }).range, () => {
     const { from, to, secs } = range(req.query as { range?: string });
     const s = getSettings();
     const devs = allDevices();
@@ -202,25 +214,25 @@ export function registerApi(app: FastifyInstance, getRouter: () => RouterCollect
     const top = ranked.slice(0, 5);
     const sparks = sparklines(from, to, secs, top.map((t) => t.device_id));
 
-    const services = topServices(from, 5);
-    const totalQ = (db.prepare('SELECT SUM(queries) AS q, SUM(blocked) AS b FROM dns_1h WHERE ts >= ?').get(hourStart(from)) as { q: number | null; b: number | null });
-    const bytes = serviceBytes(from, services.map((x) => x.base));
+    const services = topServices(from, secs, 5);
+    const ru = rollup(from, secs);
+    const totalQ = (db.prepare(`SELECT SUM(queries) AS q, SUM(blocked) AS b FROM ${ru.base} WHERE ts >= ?`).get(ru.start) as { q: number | null; b: number | null });
 
     // network map: top devices ↔ top services by DNS activity
     const mapDevices = top.map((t) => t.device_id);
     const mapServices = services.map((x) => x.base);
     let links: Array<{ device: number; service: string; weight: number }> = [];
     if (mapDevices.length && mapServices.length) {
-      links = db.prepare(`SELECT q.device_id AS device, d.base AS service, SUM(q.queries) AS weight FROM dns_1h q JOIN domains d ON d.id = q.domain_id
-        WHERE q.ts >= ? AND q.device_id IN (${mapDevices.join(',')}) AND d.base IN (${mapServices.map(() => '?').join(',')})
-        GROUP BY q.device_id, d.base`).all(hourStart(from), ...mapServices) as typeof links;
+      links = db.prepare(`SELECT b.device_id AS device, d.name AS service, SUM(b.queries) AS weight FROM ${ru.base} b JOIN domains d ON d.id = b.base_id
+        WHERE b.ts >= ? AND b.device_id IN (${mapDevices.join(',')}) AND d.name IN (${mapServices.map(() => '?').join(',')})
+        GROUP BY b.device_id, d.name`).all(ru.start, ...mapServices) as typeof links;
     }
 
     const samples = samplesSeries(from, to, secs);
     const lossRow = db.prepare('SELECT AVG(loss) AS loss, AVG(online) AS avail FROM samples WHERE ts >= ?').get(to - 3600) as { loss: number | null; avail: number | null };
     const avail = db.prepare('SELECT AVG(online) AS a FROM samples WHERE ts >= ?').get(from) as { a: number | null };
-    const geoTop = db.prepare(`SELECT cc, SUM(up) AS up, SUM(down) AS down FROM flows_1h WHERE ts >= ? AND cc IS NOT NULL GROUP BY cc ORDER BY up + down DESC LIMIT 6`).all(hourStart(from));
-    const flagged = db.prepare(`SELECT COUNT(DISTINCT f.device_id) AS n, SUM(f.up) AS up FROM flows_1h f WHERE f.ts >= ? AND ${watchClause(s)}`).get(hourStart(from)) as { n: number; up: number | null };
+    const geoTop = db.prepare(`SELECT cc, SUM(up) AS up, SUM(down) AS down FROM ${ru.geo} WHERE ts >= ? AND cc != '' GROUP BY cc ORDER BY SUM(up) + SUM(down) DESC LIMIT 6`).all(ru.start);
+    const flagged = db.prepare(`SELECT COUNT(DISTINCT f.device_id) AS n, SUM(f.up) AS up FROM ${ru.geo} f WHERE f.ts >= ? AND ${watchClause(s)}`).get(ru.start) as { n: number; up: number | null };
     const live = state.live.at(-1);
 
     return {
@@ -240,22 +252,23 @@ export function registerApi(app: FastifyInstance, getRouter: () => RouterCollect
       devices: top.map((t) => ({ ...devicePublic(byId.get(t.device_id)!), up: t.up, down: t.down, total: t.total, spark: sparks.get(t.device_id) ?? [] })),
       deviceCount: { total: devs.filter((d) => d.last_seen >= from).length, online: devs.filter((d) => d.online).length },
       dns: { queries: totalQ.q ?? 0, blocked: totalQ.b ?? 0 },
-      services: services.map((x) => ({ ...x, category: categoryOf(x.base), pct: totalQ.q ? x.queries / totalQ.q : 0, ...(bytes.get(x.base) ?? { up: 0, down: 0 }) })),
-      map: { devices: mapDevices, services: mapServices, links, otherServices: Math.max(0, (db.prepare('SELECT COUNT(DISTINCT d.base) AS n FROM dns_1h q JOIN domains d ON d.id = q.domain_id WHERE q.ts >= ?').get(hourStart(from)) as { n: number }).n - mapServices.length) },
+      services: services.map((x) => ({ ...x, category: categoryOf(x.base), pct: totalQ.q ? x.queries / totalQ.q : 0 })),
+      map: { devices: mapDevices, services: mapServices, links, otherServices: Math.max(0, (db.prepare(`SELECT COUNT(DISTINCT base_id) AS n FROM ${ru.base} WHERE ts >= ? AND queries > 0`).get(ru.start) as { n: number }).n - mapServices.length) },
       geo: { top: geoTop, flaggedDevices: flagged.n ?? 0, flaggedUp: flagged.up ?? 0, homeCountry: s.homeCountry },
       events: recentEvents(6),
     };
-  });
+  }));
 
-  app.get('/api/devices', async (req) => {
+  app.get('/api/devices', async (req) => cached(req.url, (req.query as { range?: string }).range, () => {
     const { from, to, secs } = range(req.query as { range?: string });
     const s = getSettings();
     const totals = new Map(deviceTotals(from).map((t) => [t.device_id, t]));
     const sparks = sparklines(from, to, secs);
-    const dns = new Map((db.prepare('SELECT device_id, SUM(queries) AS q, SUM(blocked) AS b FROM dns_1h WHERE ts >= ? GROUP BY device_id').all(hourStart(from)) as Array<{ device_id: number; q: number; b: number }>).map((r) => [r.device_id, r]));
-    const flagged = new Map((db.prepare(`SELECT f.device_id AS id, SUM(f.up) AS up, GROUP_CONCAT(DISTINCT f.cc) AS ccs FROM flows_1h f WHERE f.ts >= ? AND ${watchClause(s)} GROUP BY f.device_id`).all(hourStart(from)) as Array<{ id: number; up: number; ccs: string | null }>).map((r) => [r.id, r]));
+    const ru = rollup(from, secs);
+    const dns = new Map((db.prepare(`SELECT device_id, SUM(queries) AS q, SUM(blocked) AS b FROM ${ru.base} WHERE ts >= ? GROUP BY device_id`).all(ru.start) as Array<{ device_id: number; q: number; b: number }>).map((r) => [r.device_id, r]));
+    const flagged = new Map((db.prepare(`SELECT f.device_id AS id, SUM(f.up) AS up, GROUP_CONCAT(DISTINCT f.cc) AS ccs FROM ${ru.geo} f WHERE f.ts >= ? AND ${watchClause(s)} GROUP BY f.device_id`).all(ru.start) as Array<{ id: number; up: number; ccs: string | null }>).map((r) => [r.id, r]));
     const countries = new Map<number, number>();
-    for (const r of db.prepare('SELECT device_id, COUNT(DISTINCT cc) AS n FROM flows_1h WHERE ts >= ? AND cc IS NOT NULL GROUP BY device_id').all(hourStart(from)) as Array<{ device_id: number; n: number }>) countries.set(r.device_id, r.n);
+    for (const r of db.prepare(`SELECT device_id, COUNT(DISTINCT cc) AS n FROM ${ru.geo} WHERE ts >= ? AND cc != '' GROUP BY device_id`).all(ru.start) as Array<{ device_id: number; n: number }>) countries.set(r.device_id, r.n);
     return allDevices()
       .filter((d) => d.last_seen >= from || d.online || totals.has(d.id))
       .map((d) => {
@@ -269,7 +282,7 @@ export function registerApi(app: FastifyInstance, getRouter: () => RouterCollect
         };
       })
       .sort((a, b) => Number(b.online) - Number(a.online) || b.total - a.total);
-  });
+  }));
 
   app.get('/api/devices/:id', async (req, reply) => {
     const id = Number((req.params as { id: string }).id);
@@ -290,7 +303,7 @@ export function registerApi(app: FastifyInstance, getRouter: () => RouterCollect
     const destRows = db.prepare(`SELECT f.ip, SUM(f.up) AS up, SUM(f.down) AS down, SUM(f.conns) AS conns, f.cc, f.asn, a.org,
         GROUP_CONCAT(DISTINCT f.port) AS ports, MAX(f.domain_id) AS domain_id
       FROM flows_1h f LEFT JOIN asns a ON a.asn = f.asn
-      WHERE f.device_id = ? AND f.ts >= ? GROUP BY f.ip ORDER BY up + down DESC LIMIT 150`).all(id, hs) as Array<Record<string, unknown> & { cc: string | null; asn: number | null; up: number; down: number; domain_id: number | null }>;
+      WHERE f.device_id = ? AND f.ts >= ? GROUP BY f.ip ORDER BY SUM(up) + SUM(down) DESC LIMIT 150`).all(id, hs) as Array<Record<string, unknown> & { cc: string | null; asn: number | null; up: number; down: number; domain_id: number | null }>;
     const domIds = [...new Set(destRows.map((r) => r.domain_id).filter((x): x is number => x !== null))];
     const domNames = new Map(domIds.length
       ? (db.prepare(`SELECT id, name, base FROM domains WHERE id IN (${domIds.join(',')})`).all() as Array<{ id: number; name: string; base: string }>).map((r) => [r.id, r])
@@ -301,7 +314,7 @@ export function registerApi(app: FastifyInstance, getRouter: () => RouterCollect
       base: r.domain_id !== null ? domNames.get(r.domain_id)?.base ?? null : null,
       flagged: (!!r.cc && s.watchlist.countries.includes(r.cc)) || (!!r.asn && wAsns.has(r.asn)),
     }));
-    const countries = db.prepare(`SELECT cc, SUM(up) AS up, SUM(down) AS down, COUNT(DISTINCT ip) AS ips FROM flows_1h WHERE device_id = ? AND ts >= ? GROUP BY cc ORDER BY up + down DESC`).all(id, hs);
+    const countries = db.prepare(`SELECT cc, SUM(up) AS up, SUM(down) AS down, COUNT(DISTINCT ip) AS ips FROM flows_1h WHERE device_id = ? AND ts >= ? GROUP BY cc ORDER BY SUM(up) + SUM(down) DESC`).all(id, hs);
     const domains = db.prepare(`SELECT dm.name, dm.base, SUM(q.queries) AS queries, SUM(q.blocked) AS blocked FROM dns_1h q JOIN domains dm ON dm.id = q.domain_id
       WHERE q.device_id = ? AND q.ts >= ? GROUP BY dm.id ORDER BY queries DESC LIMIT 100`).all(id, hs) as Array<{ name: string; base: string; queries: number; blocked: number }>;
     const tot = series.reduce((a, p) => ({ down: a.down + p[1], up: a.up + p[2] }), { down: 0, up: 0 });
@@ -323,27 +336,30 @@ export function registerApi(app: FastifyInstance, getRouter: () => RouterCollect
     if (body.alias !== undefined) db.prepare('UPDATE devices SET alias = ? WHERE id = ?').run(body.alias?.trim() || null, id);
     if (body.kind !== undefined) db.prepare('UPDATE devices SET kind = ? WHERE id = ?').run(String(body.kind), id);
     if (body.notifyOffline !== undefined) db.prepare('UPDATE devices SET notify_offline = ? WHERE id = ?').run(body.notifyOffline ? 1 : 0, id);
+    clearApiCache();
     return devicePublic(getDevice(id)!);
   });
 
   app.delete('/api/devices/:id', async (req) => {
     const id = Number((req.params as { id: string }).id);
     db.transaction(() => {
-      for (const t of ['traffic_5m', 'flows_1h', 'dns_1h']) db.prepare(`DELETE FROM ${t} WHERE device_id = ?`).run(id);
+      for (const t of ['traffic_5m', 'flows_1h', 'dns_1h', 'geo_1h', 'base_1h', 'geo_1d', 'base_1d']) db.prepare(`DELETE FROM ${t} WHERE device_id = ?`).run(id);
       db.prepare('DELETE FROM devices WHERE id = ?').run(id);
     })();
+    clearApiCache();
     return { ok: true };
   });
 
   app.get('/api/services', async (req) => {
     const q = req.query as { range?: string; q?: string };
-    const { from } = range(q);
-    let rows = topServices(from, 300);
-    if (q.q) rows = rows.filter((r) => r.base.includes(q.q!.toLowerCase()));
-    const total = rows.reduce((a, r) => a + r.queries, 0);
-    const bytes = serviceBytes(from, rows.map((r) => r.base));
-    // services that move bytes but are never resolved through AdGuard (e.g. hard-coded IPs) are listed by IP owner in /api/geo
-    return rows.map((r) => ({ ...r, category: categoryOf(r.base), pct: total ? r.queries / total : 0, ...(bytes.get(r.base) ?? { up: 0, down: 0 }) }));
+    const { from, secs } = range(q);
+    return cached(req.url, q.range, () => {
+      let rows = topServices(from, secs, 300);
+      if (q.q) rows = rows.filter((r) => r.base.includes(q.q!.toLowerCase()));
+      const total = rows.reduce((a, r) => a + r.queries, 0);
+      // services that move bytes but are never resolved through AdGuard (hard-coded IPs) are listed by network owner in /api/geo
+      return rows.map((r) => ({ ...r, category: categoryOf(r.base), pct: total ? r.queries / total : 0 }));
+    });
   });
 
   app.get('/api/services/:base', async (req) => {
@@ -357,29 +373,30 @@ export function registerApi(app: FastifyInstance, getRouter: () => RouterCollect
     const subdomains = db.prepare(`SELECT d.name, SUM(q.queries) AS queries, SUM(q.blocked) AS blocked FROM dns_1h q JOIN domains d ON d.id = q.domain_id
       WHERE d.base = ? AND q.ts >= ? GROUP BY d.id ORDER BY queries DESC LIMIT 50`).all(base, hs);
     const ips = db.prepare(`SELECT f.ip, f.cc, a.org, SUM(f.up) AS up, SUM(f.down) AS down FROM flows_1h f JOIN domains d ON d.id = f.domain_id LEFT JOIN asns a ON a.asn = f.asn
-      WHERE d.base = ? AND f.ts >= ? GROUP BY f.ip ORDER BY up + down DESC LIMIT 50`).all(base, hs);
+      WHERE d.base = ? AND f.ts >= ? GROUP BY f.ip ORDER BY SUM(up) + SUM(down) DESC LIMIT 50`).all(base, hs);
     return { base, category: categoryOf(base), devices, subdomains, ips };
   });
 
-  app.get('/api/geo', async (req) => {
+  app.get('/api/geo', async (req) => cached(req.url, (req.query as { range?: string }).range, () => {
     const q = req.query as { range?: string; device?: string };
-    const { from } = range(q);
+    const { from, secs } = range(q);
     const s = getSettings();
     const hs = hourStart(from);
+    const ru = rollup(from, secs);
     const dev = q.device ? Number(q.device) : null;
     const devFilter = dev ? `AND f.device_id = ${dev}` : '';
-    const countries = db.prepare(`SELECT f.cc, SUM(f.up) AS up, SUM(f.down) AS down, COUNT(DISTINCT f.device_id) AS devices, COUNT(DISTINCT f.ip) AS ips
-      FROM flows_1h f WHERE f.ts >= ? ${devFilter} GROUP BY f.cc ORDER BY up + down DESC`).all(hs);
-    const asns = db.prepare(`SELECT f.asn, a.org, f.cc, SUM(f.up) AS up, SUM(f.down) AS down, COUNT(DISTINCT f.device_id) AS devices
-      FROM flows_1h f LEFT JOIN asns a ON a.asn = f.asn WHERE f.ts >= ? ${devFilter} GROUP BY f.asn, f.cc ORDER BY up + down DESC LIMIT 40`).all(hs);
+    const countries = db.prepare(`SELECT NULLIF(f.cc, '') AS cc, SUM(f.up) AS up, SUM(f.down) AS down, COUNT(DISTINCT f.device_id) AS devices, SUM(f.conns) AS conns
+      FROM ${ru.geo} f WHERE f.ts >= ? ${devFilter} GROUP BY f.cc ORDER BY SUM(up) + SUM(down) DESC`).all(ru.start);
+    const asns = db.prepare(`SELECT NULLIF(f.asn, 0) AS asn, a.org, NULLIF(f.cc, '') AS cc, SUM(f.up) AS up, SUM(f.down) AS down, COUNT(DISTINCT f.device_id) AS devices
+      FROM ${ru.geo} f LEFT JOIN asns a ON a.asn = f.asn WHERE f.ts >= ? ${devFilter} GROUP BY f.asn, f.cc ORDER BY SUM(up) + SUM(down) DESC LIMIT 40`).all(ru.start);
     const byId = new Map(allDevices().map((d) => [d.id, d]));
     const flagged = (db.prepare(`SELECT f.device_id AS id, f.cc, f.asn, a.org, SUM(f.up) AS up, SUM(f.down) AS down, SUM(f.conns) AS conns,
         COUNT(DISTINCT f.ip) AS ips, GROUP_CONCAT(DISTINCT dm.name) AS domains, MAX(f.ts) AS last
       FROM flows_1h f LEFT JOIN asns a ON a.asn = f.asn LEFT JOIN domains dm ON dm.id = f.domain_id
       WHERE f.ts >= ? ${devFilter} AND ${watchClause(s)} GROUP BY f.device_id, f.cc, f.asn ORDER BY up DESC LIMIT 100`).all(hs) as Array<{ id: number; domains: string | null } & Record<string, unknown>>)
       .map((r) => ({ ...r, name: byId.get(r.id) ? displayName(byId.get(r.id)!) : `#${r.id}`, kind: byId.get(r.id)?.kind ?? 'unknown', domains: r.domains?.split(',').slice(0, 6) ?? [] }));
-    const matrix = (db.prepare(`SELECT f.device_id AS id, f.cc, SUM(f.up) AS up, SUM(f.down) AS down FROM flows_1h f WHERE f.ts >= ? ${devFilter} AND f.cc IS NOT NULL
-      GROUP BY f.device_id, f.cc`).all(hs) as Array<{ id: number; cc: string; up: number; down: number }>);
+    const matrix = (db.prepare(`SELECT f.device_id AS id, f.cc, SUM(f.up) AS up, SUM(f.down) AS down FROM ${ru.geo} f WHERE f.ts >= ? ${devFilter} AND f.cc != ''
+      GROUP BY f.device_id, f.cc`).all(ru.start) as Array<{ id: number; cc: string; up: number; down: number }>);
     const perDevice = new Map<number, { id: number; name: string; kind: string; total: number; up: number; countries: Array<{ cc: string; up: number; down: number }> }>();
     for (const r of matrix) {
       const d = byId.get(r.id);
@@ -399,7 +416,7 @@ export function registerApi(app: FastifyInstance, getRouter: () => RouterCollect
       devices: [...perDevice.values()].sort((a, b) => b.total - a.total),
       geo: geoStatus(),
     };
-  });
+  }));
 
   app.get('/api/monitor', async (req) => {
     const { from, to, secs } = range(req.query as { range?: string });
@@ -459,6 +476,7 @@ export function registerApi(app: FastifyInstance, getRouter: () => RouterCollect
 
   app.put('/api/settings', async (req) => {
     updateSettings((req.body ?? {}) as Partial<Settings>);
+    clearApiCache();
     return publicSettings();
   });
 

@@ -1,7 +1,7 @@
 // DEMO=1: simulated OpenWrt router + AdGuard Home, plus 7 days of back-filled history.
 // Lets you develop the UI without touching the real network.
 import type { AdGuardApi, QueryLogEntry } from './adguard.js';
-import { db, domainId, localDay } from './db.js';
+import { backfillRollups, db, domainId, localDay } from './db.js';
 import { guessKind } from './devices.js';
 import { addEvent } from './events.js';
 import { registerDemoGeo } from './geo.js';
@@ -281,5 +281,6 @@ export function backfillDemo() {
   addEvent('internet_up', 'success', 'Internet di nuovo online', 'Interruzione di 7 min', null, outage[1]);
   addEvent('new_device', 'info', 'Nuovo dispositivo rilevato', 'ESP32-CAM (192.168.1.73)', esp, now - 5 * 3600);
   addEvent('router_boot', 'info', 'Router riavviato', 'GL.iNet GL-X3000', null, now - 12 * 86400);
+  backfillRollups();
   log.info('demo: back-fill done');
 }

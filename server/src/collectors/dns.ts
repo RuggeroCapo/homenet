@@ -1,14 +1,17 @@
 // Pulls new AdGuard query-log entries and aggregates them per device/domain/hour.
 import { getDomain } from 'tldts';
 import { isBlocked, type AdGuardApi, type QueryLogEntry } from '../adguard.js';
-import { db, domainId, kvGet, kvSet } from '../db.js';
+import { dayBucket, db, domainId, kvGet, kvSet } from '../db.js';
 import { deviceForIp, markActive, resolveDevice } from '../devices.js';
 import { collectorError, collectorOk } from '../state.js';
 import { rememberIpDomain } from './flows.js';
 
 const IGNORE = /(\.arpa|\.local|\.lan|\.home|\.internal|\.localdomain)$/;
 
-const buckets = new Map<string, { ts: number; dev: number; dom: number; q: number; b: number }>();
+const buckets = new Map<string, { ts: number; dev: number; dom: number; base: number; q: number; b: number }>();
+const baseSql = (t: string) => db.prepare(`INSERT INTO ${t} (ts, device_id, base_id, queries, blocked) VALUES (?, ?, ?, ?, ?)
+  ON CONFLICT(ts, device_id, base_id) DO UPDATE SET queries = queries + excluded.queries, blocked = blocked + excluded.blocked`);
+const upBase = baseSql('base_1h'), upBaseDay = baseSql('base_1d');
 const upsert = db.prepare(`INSERT INTO dns_1h (ts, device_id, domain_id, queries, blocked) VALUES (@ts, @dev, @dom, @q, @b)
   ON CONFLICT(ts, device_id, domain_id) DO UPDATE SET queries = queries + excluded.queries, blocked = blocked + excluded.blocked`);
 
@@ -20,13 +23,15 @@ export function ingestQuery(e: QueryLogEntry) {
   const t = Math.floor(Date.parse(e.time) / 1000);
   const name = (e.question?.name ?? '').replace(/\.$/, '').toLowerCase();
   if (!name || !name.includes('.') || IGNORE.test(name)) return;
-  const dom = domainId(name, baseDomain(name));
+  const baseName = baseDomain(name);
+  const dom = domainId(name, baseName);
+  const base = domainId(baseName, baseName);
   const dev = deviceForIp(e.client, e.client_info?.name || null);
   markActive(dev, t);
   const hour = t - (t % 3600);
   const key = `${hour}|${dev}|${dom}`;
   let b = buckets.get(key);
-  if (!b) buckets.set(key, (b = { ts: hour, dev, dom, q: 0, b: 0 }));
+  if (!b) buckets.set(key, (b = { ts: hour, dev, dom, base, q: 0, b: 0 }));
   b.q++;
   if (isBlocked(e.reason)) b.b++;
   for (const a of e.answer ?? []) {
@@ -39,7 +44,17 @@ export function flushDns() {
   const rows = [...buckets.values()];
   buckets.clear();
   for (const r of rows) r.dev = resolveDevice(r.dev);
-  db.transaction(() => { for (const r of rows) upsert.run(r); })();
+  const base = new Map<string, [number, number, number, number, number]>();
+  for (const r of rows) {
+    const k = `${r.ts}|${r.dev}|${r.base}`;
+    const e = base.get(k) ?? [r.ts, r.dev, r.base, 0, 0];
+    e[3] += r.q; e[4] += r.b;
+    base.set(k, e);
+  }
+  db.transaction(() => {
+    for (const r of rows) upsert.run(r);
+    for (const e of base.values()) { upBase.run(...e); upBaseDay.run(dayBucket(e[0]), ...e.slice(1)); }
+  })();
 }
 
 export class DnsCollector {

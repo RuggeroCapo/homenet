@@ -5,13 +5,13 @@ import { NetworkFlow } from '../components/NetworkFlow';
 import { UpDownBar } from '../components/charts';
 import { WorldMap } from '../components/WorldMap';
 import { Card, CardHead, DeviceIcon, Empty, RangePicker, Skeleton } from '../components/ui';
-import { countryName, flag, fmtBytes, fmtWhen, seriesColor, usePoll } from '../lib';
+import { countryName, flag, fmtBytes, fmtNum, fmtWhen, seriesColor, usePoll } from '../lib';
 import type { DeviceWithTraffic, Overview } from '../types';
 
 interface GeoData {
   homeCountry: string;
   watchlist: { countries: string[]; asnKeywords: string[]; minBytes: number };
-  countries: Array<{ cc: string | null; up: number; down: number; devices: number; ips: number }>;
+  countries: Array<{ cc: string | null; up: number; down: number; devices: number; conns: number }>;
   asns: Array<{ asn: number | null; org: string | null; cc: string | null; up: number; down: number; devices: number }>;
   flagged: Array<{ id: number; name: string; kind: string; cc: string | null; asn: number | null; org: string | null; up: number; down: number; conns: number; ips: number; domains: string[]; last: number }>;
   devices: Array<{ id: number; name: string; kind: string; total: number; up: number; countries: Array<{ cc: string; up: number; down: number }> }>;
@@ -67,7 +67,7 @@ export function NetworkMap({ range, setRange }: PageProps) {
                         <span style={{ fontSize: 20 }}>{flag(c.cc)}</span>
                         <div className="ellipsis">
                           <div className="name hstack" style={{ gap: 6 }}>{countryName(c.cc)}{watched && <ShieldAlert size={14} color="var(--err)" aria-label="In watchlist" />}</div>
-                          <div className="meta">{c.devices} dispositivi · {c.ips} IP</div>
+                          <div className="meta">{c.devices} dispositivi · {fmtNum(c.conns)} connessioni</div>
                         </div>
                         <UpDownBar up={c.up} down={c.down} max={maxC} />
                         <div className="num" style={{ textAlign: 'right', fontSize: 13 }}>{fmtBytes(c.up + c.down)}<div className="meta">↑ {fmtBytes(c.up)}</div></div>
