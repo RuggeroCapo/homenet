@@ -2,7 +2,7 @@ manifestVersion: 1
 id: ruggero-homenet
 name: HomeNet
 tagline: Router watchdog, traffic analytics and where your devices send data
-icon: https://raw.githubusercontent.com/OWNER/homenet/main/umbrel/ruggero-homenet/icon.svg
+icon: https://raw.githubusercontent.com/RuggeroCapo/homenet/main/umbrel/ruggero-homenet/icon.svg
 category: networking
 version: "0.1.0"
 port: 8790
@@ -18,11 +18,11 @@ description: >-
 
   Requires the small HomeNet rpcd plugin on the router (see the project README).
 developer: Ruggero
-website: https://github.com/OWNER/homenet
+website: https://github.com/RuggeroCapo/homenet
 submitter: Ruggero
-submission: https://github.com/OWNER/homenet
-repo: https://github.com/OWNER/homenet
-support: https://github.com/OWNER/homenet/issues
+submission: https://github.com/RuggeroCapo/homenet
+repo: https://github.com/RuggeroCapo/homenet
+support: https://github.com/RuggeroCapo/homenet/issues
 gallery: []
 releaseNotes: >-
   First release.
