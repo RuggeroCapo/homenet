@@ -1,0 +1,27 @@
+manifestVersion: 1.1
+id: ruggero-photo-backup
+name: Photo Backup
+tagline: Backup unidirezionale della libreria foto su Google Photos
+icon: https://raw.githubusercontent.com/RuggeroCapo/homenet/main/umbrel/ruggero-photo-backup/icon.svg
+category: files
+version: "1.0.0"
+port: 8765
+description: >-
+  Controlla una cartella di foto e video sul tuo disco e li carica su Google Photos con rclone,
+  in sola lettura: gli originali non vengono mai modificati né eliminati.
+
+
+  Richiede la configurazione una tantum di rclone (OAuth Google, modalità headless), vedi il README del progetto.
+  La libreria viene letta da /photos, che corrisponde alla cartella storage di Umbrel.
+developer: Ruggero
+website: https://github.com/RuggeroCapo/google-photo-backup
+submitter: Ruggero
+submission: https://github.com/RuggeroCapo/homenet
+repo: https://github.com/RuggeroCapo/google-photo-backup
+support: https://github.com/RuggeroCapo/google-photo-backup/issues
+gallery: []
+releaseNotes: Prima versione.
+dependencies: []
+path: ""
+defaultUsername: ""
+defaultPassword: ""

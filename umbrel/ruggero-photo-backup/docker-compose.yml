@@ -1,0 +1,30 @@
+version: "3.7"
+
+services:
+  app_proxy:
+    environment:
+      # <app-id>_<service>_1
+      APP_HOST: ruggero-photo-backup_photo-backup_1
+      APP_PORT: 8080
+
+  photo-backup:
+    image: ghcr.io/ruggerocapo/google-photo-backup:1.0.0
+    user: "1000:1000"
+    init: true
+    restart: on-failure
+    stop_grace_period: 30s
+    environment:
+      TZ: Europe/Rome
+      PHOTOS_DIR: /photos
+      DATABASE_PATH: /database/photo-backup.db
+      RCLONE_CONFIG: /config/rclone/rclone.conf
+      LOG_DIR: /logs
+      PORT: 8080
+      RCLONE_REMOTE: gphotos
+      RCLONE_DEST_PATH: upload
+    volumes:
+      # read-only: the agent can never modify or delete local photos
+      - ${UMBREL_ROOT}/data/storage:/photos:ro
+      - ${APP_DATA_DIR}/database:/database
+      - ${APP_DATA_DIR}/config:/config
+      - ${APP_DATA_DIR}/logs:/logs

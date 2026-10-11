@@ -1,0 +1,24 @@
+manifestVersion: 1.1
+id: ruggero-router-sms
+name: Router SMS
+tagline: Leggi e invia gli SMS della SIM del tuo router
+icon: https://raw.githubusercontent.com/RuggeroCapo/homenet/main/umbrel/ruggero-router-sms/icon.svg
+category: networking
+version: "1.0.0"
+port: 5080
+description: >-
+  Interfaccia web per leggere, inviare ed eliminare gli SMS della SIM nel router.
+  Il router (OpenWrt + ModemManager) viene interrogato via SSH con mmcli; le credenziali
+  si inseriscono al primo avvio e restano sul tuo server.
+developer: Ruggero
+website: https://github.com/RuggeroCapo/openwrt-sms-ui
+submitter: Ruggero
+submission: https://github.com/RuggeroCapo/homenet
+repo: https://github.com/RuggeroCapo/openwrt-sms-ui
+support: https://github.com/RuggeroCapo/openwrt-sms-ui/issues
+gallery: []
+releaseNotes: Prima versione.
+dependencies: []
+path: ""
+defaultUsername: ""
+defaultPassword: ""
