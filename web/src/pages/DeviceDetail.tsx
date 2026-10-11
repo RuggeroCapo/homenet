@@ -1,4 +1,4 @@
-import { ArrowDown, ArrowUp, Bell, ChevronLeft, Clock, Globe, MapPin, Pencil, ShieldAlert, Trash2, Waypoints } from 'lucide-react';
+import { ArrowDown, ArrowUp, Bell, ChevronLeft, Clock, Download, Globe, MapPin, Pencil, ShieldAlert, Trash2, Waypoints } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { PageHead, type PageProps } from '../App';
 import { TimeChart, UpDownBar } from '../components/charts';
@@ -127,6 +127,7 @@ export function DeviceDetail({ id, range, setRange }: PageProps & { id: number }
           <CardHead icon={tab === 'dest' ? Waypoints : Globe} title={tab === 'dest' ? 'Destinazioni' : 'Domini richiesti (DNS)'}
             sub={tab === 'dest' ? 'Indirizzi IP contattati, con paese, rete proprietaria e dominio risolto' : 'Query DNS registrate da AdGuard Home'}>
             <Seg value={tab} onChange={setTab} options={[['dest', `Destinazioni (${data.destinations.length})`], ['dns', `Domini (${data.domains.length})`]]} />
+            <a className="btn sm" href={`/api/export/destinations.csv?range=${range}&device=${d.id}`} download><Download />CSV</a>
           </CardHead>
           {tab === 'dest' ? (data.destinations.length === 0 ? <Empty>Nessuna connessione registrata</Empty> : (
             <div style={{ overflowX: 'auto' }}>

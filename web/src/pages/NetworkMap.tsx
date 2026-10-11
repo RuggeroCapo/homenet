@@ -1,4 +1,4 @@
-import { Earth, Network, ShieldAlert, ShieldCheck, Waypoints } from 'lucide-react';
+import { Download, Earth, Network, ShieldAlert, ShieldCheck, Waypoints } from 'lucide-react';
 import { useState } from 'react';
 import { PageHead, type PageProps } from '../App';
 import { NetworkFlow } from '../components/NetworkFlow';
@@ -39,6 +39,7 @@ export function NetworkMap({ range, setRange }: PageProps) {
           {(devices ?? []).map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
         </select>
         <RangePicker value={range} onChange={setRange} />
+        <a className="btn" href={`/api/export/destinations.csv?range=${range}${device ? `&device=${device}` : ''}`} download title="Esporta tutte le destinazioni in CSV"><Download />CSV</a>
       </PageHead>
       {!data ? <Skeleton h={500} /> : (
         <div className="stack">

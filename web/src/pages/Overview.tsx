@@ -204,7 +204,7 @@ export function Overview({ range, setRange }: PageProps) {
           <div className="grid g-wide">
             <ServicesCard d={d} />
             <Card>
-              <CardHead icon={Clock} title="Attività recente" />
+              <CardHead icon={Clock} title="Attività recente" href="#/events" />
               <EventList events={d.events} compact />
             </Card>
           </div>

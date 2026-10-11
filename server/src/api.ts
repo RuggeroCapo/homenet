@@ -488,10 +488,46 @@ export function registerApi(app: FastifyInstance, getRouter: () => RouterCollect
   });
 
   app.get('/api/events', async (req) => {
-    const q = req.query as { limit?: string; before?: string; type?: string; device?: string };
+    const q = req.query as { limit?: string; before?: string; group?: string; device?: string; severity?: string };
     const limit = Math.min(200, Number(q.limit ?? 50));
-    if (q.type) return db.prepare('SELECT * FROM events WHERE type = ? AND id < ? ORDER BY id DESC LIMIT ?').all(q.type, Number(q.before ?? 1e15), limit);
-    return recentEvents(limit, q.before ? Number(q.before) : undefined, q.device ? Number(q.device) : undefined);
+    const GROUPS: Record<string, string[]> = {
+      internet: ['internet_down', 'internet_up', 'wan_down', 'wan_up'],
+      devices: ['new_device', 'device_offline', 'device_online'],
+      geo: ['geo_alert'],
+      router: ['router_boot', 'action', 'watchdog'],
+    };
+    const where: string[] = [];
+    const args: unknown[] = [];
+    // keyset pagination on (ts, id), newest first
+    if (q.before) { const [ts, id] = q.before.split(':').map(Number); where.push('(ts < ? OR (ts = ? AND id < ?))'); args.push(ts, ts, id); }
+    if (q.group && GROUPS[q.group]) where.push(`type IN (${GROUPS[q.group].map((t) => `'${t}'`).join(',')})`);
+    if (q.severity && ['info', 'success', 'warning', 'error'].includes(q.severity)) { where.push('severity = ?'); args.push(q.severity); }
+    if (q.device) { where.push('device_id = ?'); args.push(Number(q.device)); }
+    return db.prepare(`SELECT * FROM events ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY ts DESC, id DESC LIMIT ${limit}`).all(...args);
+  });
+
+  // CSV export of destinations (per device × destination) for the selected range
+  app.get('/api/export/destinations.csv', async (req, reply) => {
+    const q = req.query as { range?: string; device?: string };
+    const { from } = range(q);
+    const byId = new Map(allDevices().map((d) => [d.id, d]));
+    const rows = db.prepare(`SELECT f.device_id, f.ip, f.proto, GROUP_CONCAT(DISTINCT f.port) AS ports, SUM(f.up) AS up, SUM(f.down) AS down, SUM(f.conns) AS conns,
+        f.cc, f.asn, a.org, MAX(f.domain_id) AS domain_id, MIN(f.ts) AS first, MAX(f.ts) AS last
+      FROM flows_1h f LEFT JOIN asns a ON a.asn = f.asn WHERE f.ts >= ? ${q.device ? 'AND f.device_id = ?' : ''}
+      GROUP BY f.device_id, f.ip, f.proto ORDER BY f.device_id, SUM(f.up) + SUM(f.down) DESC`).all(...[hourStart(from), ...(q.device ? [Number(q.device)] : [])]) as Array<Record<string, string | number | null>>;
+    const domains = new Map((db.prepare('SELECT id, name FROM domains').all() as Array<{ id: number; name: string }>).map((d) => [d.id, d.name]));
+    const esc = (v: unknown) => { const t = v === null || v === undefined ? '' : String(v); return /[",\n;]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t; };
+    const iso = (t: unknown) => (typeof t === 'number' ? new Date(t * 1000).toISOString() : '');
+    const PROTO: Record<number, string> = { 6: 'tcp', 17: 'udp', 1: 'icmp', 58: 'icmpv6' };
+    const lines = ['device,device_ip,mac,destination_ip,domain,country,asn,network,protocol,ports,bytes_up,bytes_down,connections,first_hour,last_hour'];
+    for (const r of rows) {
+      const d = byId.get(Number(r.device_id));
+      lines.push([d ? displayName(d) : r.device_id, d?.ip, d && !d.mac.startsWith('ip:') ? d.mac : '', r.ip, r.domain_id !== null ? domains.get(Number(r.domain_id)) : '',
+        r.cc, r.asn, r.org, PROTO[Number(r.proto)] ?? r.proto, r.ports, r.up, r.down, r.conns, iso(r.first), iso(r.last)].map(esc).join(','));
+    }
+    reply.header('content-type', 'text/csv; charset=utf-8');
+    reply.header('content-disposition', `attachment; filename="homenet-destinations-${q.range ?? '24h'}${q.device ? `-device${q.device}` : ''}.csv"`);
+    return '\uFEFF' + lines.join('\n') + '\n';
   });
 
   app.get('/api/search', async (req) => {

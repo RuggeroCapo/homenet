@@ -229,7 +229,7 @@ export function Monitor({ range, setRange }: PageProps) {
               ))}
             </Card>
             <Card>
-              <CardHead icon={Clock} title="Eventi di connettività" />
+              <CardHead icon={Clock} title="Eventi di connettività" href="#/events" />
               <EventList events={data.events} compact />
             </Card>
           </div>

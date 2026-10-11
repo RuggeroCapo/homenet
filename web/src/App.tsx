@@ -3,6 +3,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { DeviceIcon, LetterAvatar, UiProvider } from './components/ui';
 import { api, fmtTime, hashColor, usePoll, useHashRoute, useStoredState, type Range } from './lib';
 import { DeviceDetail } from './pages/DeviceDetail';
+import { Events } from './pages/Events';
 import { Devices } from './pages/Devices';
 import { Monitor as MonitorPage } from './pages/Monitor';
 import { NetworkMap } from './pages/NetworkMap';
@@ -106,6 +107,7 @@ export default function App() {
   else if (route.startsWith('/map')) page = <NetworkMap {...props} />;
   else if (route.startsWith('/monitor')) page = <MonitorPage {...props} />;
   else if (route.startsWith('/settings')) page = <Settings />;
+  else if (route.startsWith('/events')) page = <Events />;
   else page = <Overview {...props} />;
 
   return (
