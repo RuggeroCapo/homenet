@@ -9,6 +9,7 @@ import { geoStatus } from './geo.js';
 import { UbusClient } from './router.js';
 import { adguardConfigured, DEMO, getSettings, publicSettings, routerConfigured, updateSettings, type Settings } from './settings.js';
 import { state } from './state.js';
+import { send as sendNotice } from './notify.js';
 
 const VERSION = process.env.npm_package_version ?? '0.1.0';
 const started = Date.now();
@@ -385,7 +386,7 @@ export function registerApi(app: FastifyInstance, getRouter: () => RouterCollect
       series: samplesSeries(from, to, secs),
       live: state.live,
       summary: avail,
-      watchdog: { ...s.watchdog, ha: { ...s.watchdog.ha, token: '' }, state: state.watchdog, reboots: db.prepare("SELECT value FROM kv WHERE key = 'reboots'").pluck().get() ?? '[]' },
+      watchdog: { ...s.watchdog, state: state.watchdog, reboots: db.prepare("SELECT value FROM kv WHERE key = 'reboots'").pluck().get() ?? '[]' },
       events: (db.prepare(`SELECT * FROM events WHERE type IN ('internet_down','internet_up','wan_up','wan_down','router_boot','action','watchdog') ORDER BY ts DESC LIMIT 20`).all()),
     };
   });
@@ -423,6 +424,15 @@ export function registerApi(app: FastifyInstance, getRouter: () => RouterCollect
   app.put('/api/settings', async (req) => {
     updateSettings((req.body ?? {}) as Partial<Settings>);
     return publicSettings();
+  });
+
+  app.post('/api/notify/test', async () => {
+    try {
+      await sendNotice({ title: 'Notifica di prova', body: 'HomeNet è collegato correttamente.', severity: 'info', ts: Math.floor(Date.now() / 1000) });
+      return { ok: true, message: 'Inviata' };
+    } catch (e) {
+      return { ok: false, message: e instanceof Error ? e.message : String(e) };
+    }
   });
 
   app.post('/api/settings/test', async (req) => {

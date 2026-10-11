@@ -1,4 +1,5 @@
 import { db, kvGet, kvSet } from './db.js';
+import { notifyEvent } from './notify.js';
 
 export type Severity = 'info' | 'success' | 'warning' | 'error';
 
@@ -6,6 +7,7 @@ const ins = db.prepare('INSERT INTO events (ts, type, severity, title, detail, d
 
 export function addEvent(type: string, severity: Severity, title: string, detail?: string | null, deviceId?: number | null, ts = Math.floor(Date.now() / 1000)) {
   ins.run(ts, type, severity, title, detail ?? null, deviceId ?? null);
+  notifyEvent(type, { title, body: detail ?? '', severity, ts });
 }
 
 /** Emits an event only once per dedupe key (stored in kv, pruned with the retention window). */

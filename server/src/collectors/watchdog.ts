@@ -6,14 +6,15 @@ import { state } from '../state.js';
 import type { RouterCollector } from './router.js';
 
 export async function haPowerCycle() {
-  const ha = getSettings().watchdog.ha;
-  if (!ha.url || !ha.token || !ha.entityId) throw new Error('Home Assistant non configurato');
+  const { url, token } = getSettings().homeassistant;
+  const { entityId } = getSettings().watchdog.ha;
+  if (!url || !token || !entityId) throw new Error('Home Assistant non configurato');
   const call = async (service: 'turn_off' | 'turn_on') => {
-    const domain = ha.entityId.split('.')[0];
-    const res = await fetch(`${ha.url.replace(/\/+$/, '')}/api/services/${domain}/${service}`, {
+    const domain = entityId.split('.')[0];
+    const res = await fetch(`${url.replace(/\/+$/, '')}/api/services/${domain}/${service}`, {
       method: 'POST',
-      headers: { authorization: `Bearer ${ha.token}`, 'content-type': 'application/json' },
-      body: JSON.stringify({ entity_id: ha.entityId }),
+      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ entity_id: entityId }),
       signal: AbortSignal.timeout(10_000),
     });
     if (!res.ok) throw new Error(`Home Assistant HTTP ${res.status}`);

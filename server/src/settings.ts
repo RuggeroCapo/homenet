@@ -15,7 +15,15 @@ export interface Settings {
     escalateMinutes: number;
     maxRebootsPer6h: number;
     /** optional last resort: power-cycle the router through a Home Assistant switch */
-    ha: { enabled: boolean; url: string; token: string; entityId: string };
+    ha: { enabled: boolean; entityId: string };
+  };
+  homeassistant: { url: string; token: string };
+  notify: {
+    ntfy: { enabled: boolean; url: string; token: string };
+    telegram: { enabled: boolean; botToken: string; chatId: string };
+    ha: { enabled: boolean; service: string };
+    /** which event groups are pushed */
+    types: { internet: boolean; geo: boolean; newDevice: boolean; deviceOffline: boolean; watchdog: boolean };
   };
   watchlist: { countries: string[]; asnKeywords: string[]; minBytes: number };
 }
@@ -37,7 +45,14 @@ function defaults(): Settings {
       firstAction: 'restart_wan',
       escalateMinutes: 5,
       maxRebootsPer6h: 2,
-      ha: { enabled: false, url: 'http://homeassistant.local:8123', token: '', entityId: 'switch.router' },
+      ha: { enabled: false, entityId: 'switch.router' },
+    },
+    homeassistant: { url: env.HA_URL ?? 'http://homeassistant.local:8123', token: env.HA_TOKEN ?? '' },
+    notify: {
+      ntfy: { enabled: false, url: 'https://ntfy.sh/homenet-change-me', token: '' },
+      telegram: { enabled: false, botToken: '', chatId: '' },
+      ha: { enabled: false, service: 'mobile_app_iphone' },
+      types: { internet: true, geo: true, newDevice: true, deviceOffline: true, watchdog: true },
     },
     watchlist: {
       countries: ['CN', 'RU', 'KP', 'IR', 'HK'],
@@ -82,28 +97,37 @@ export function adguardConfigured(s = current) {
   return DEMO || !!s.adguard.url;
 }
 
-const SECRET_PATHS: Array<[keyof Settings, string]> = [['router', 'password'], ['adguard', 'password']];
+/** Secret fields: never sent to the browser; an empty value in an update keeps the stored one. */
+const SECRET_PATHS = ['router.password', 'adguard.password', 'homeassistant.token', 'notify.ntfy.token', 'notify.telegram.botToken'];
 
-/** Settings as sent to the browser: secrets replaced by a flag. */
+function getPath(o: unknown, path: string): unknown {
+  return path.split('.').reduce<unknown>((a, k) => (a && typeof a === 'object' ? (a as Record<string, unknown>)[k] : undefined), o);
+}
+function setPath(o: unknown, path: string, v: unknown) {
+  const keys = path.split('.');
+  const last = keys.pop()!;
+  const parent = keys.reduce<unknown>((a, k) => (a as Record<string, unknown>)[k], o) as Record<string, unknown>;
+  parent[last] = v;
+}
+
+/** Settings as sent to the browser: secrets replaced by a has_<field> flag. */
 export function publicSettings() {
-  const s = structuredClone(current) as Settings & Record<string, unknown>;
-  for (const [section, key] of SECRET_PATHS) {
-    const sec = s[section] as Record<string, unknown>;
-    sec[`has_${key}`] = !!sec[key];
-    sec[key] = '';
+  const s = structuredClone(current);
+  for (const path of SECRET_PATHS) {
+    const keys = path.split('.');
+    const field = keys[keys.length - 1];
+    setPath(s, [...keys.slice(0, -1), `has_${field}`].join('.'), !!getPath(current, path));
+    setPath(s, path, '');
   }
-  s.watchdog.ha = { ...s.watchdog.ha, token: '', has_token: !!current.watchdog.ha.token } as typeof s.watchdog.ha;
   return s;
 }
 
 /** Applies a partial update; empty secret fields keep the stored value. */
 export function updateSettings(patch: Partial<Settings>) {
   const next = merge(current, patch);
-  for (const [section, key] of SECRET_PATHS) {
-    const p = (patch as Record<string, Record<string, unknown> | undefined>)[section];
-    if (p && p[key] === '') (next[section] as Record<string, unknown>)[key] = (current[section] as Record<string, unknown>)[key];
+  for (const path of SECRET_PATHS) {
+    if (getPath(patch, path) === '') setPath(next, path, getPath(current, path));
   }
-  if (patch.watchdog?.ha && patch.watchdog.ha.token === '') next.watchdog.ha.token = current.watchdog.ha.token;
   next.retentionDays = Math.min(60, Math.max(1, Math.round(next.retentionDays)));
   next.watchlist.countries = next.watchlist.countries.map((c) => c.trim().toUpperCase()).filter(Boolean);
   next.watchlist.asnKeywords = next.watchlist.asnKeywords.map((c) => c.trim().toLowerCase()).filter(Boolean);

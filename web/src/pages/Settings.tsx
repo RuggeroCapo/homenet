@@ -1,4 +1,4 @@
-import { Database, Globe, Plug, Router, Save, ShieldAlert, ShieldCheck } from 'lucide-react';
+import { Bell, Database, Globe, House, Plug, Router, Save, ShieldAlert, ShieldCheck } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
 import { PageHead } from '../App';
 import { Card, CardHead, Skeleton, Status, useUi } from '../components/ui';
@@ -11,7 +11,14 @@ interface SettingsData {
   retentionDays: number;
   homeCountry: string;
   probeTargets: string[];
-  watchdog: { enabled: boolean; downMinutes: number; firstAction: string; escalateMinutes: number; maxRebootsPer6h: number; ha: { enabled: boolean; url: string; token: string; entityId: string; has_token?: boolean } };
+  watchdog: { enabled: boolean; downMinutes: number; firstAction: string; escalateMinutes: number; maxRebootsPer6h: number; ha: { enabled: boolean; entityId: string } };
+  homeassistant: { url: string; token: string; has_token?: boolean };
+  notify: {
+    ntfy: { enabled: boolean; url: string; token: string; has_token?: boolean };
+    telegram: { enabled: boolean; botToken: string; chatId: string; has_botToken?: boolean };
+    ha: { enabled: boolean; service: string };
+    types: { internet: boolean; geo: boolean; newDevice: boolean; deviceOffline: boolean; watchdog: boolean };
+  };
   watchlist: { countries: string[]; asnKeywords: string[]; minBytes: number };
 }
 
@@ -58,6 +65,11 @@ export function Settings() {
     const body = target === 'router' ? { target, ...s.router } : { target, ...s.adguard };
     const res = await api<{ ok: boolean; message: string }>('/api/settings/test', { method: 'POST', body: JSON.stringify(body) }).catch((e) => ({ ok: false, message: String(e) }));
     setTest((t) => ({ ...t, [target]: res }));
+  };
+  const sendTest = async () => {
+    setTest((t) => ({ ...t, notify: 'busy' }));
+    const res = await api<{ ok: boolean; message: string }>('/api/notify/test', { method: 'POST' }).catch((e) => ({ ok: false, message: String(e) }));
+    setTest((t) => ({ ...t, notify: res }));
   };
   const TestResult = ({ k }: { k: string }) => {
     const r = test[k];
@@ -120,15 +132,60 @@ export function Settings() {
             <div className="inset stack" style={{ padding: 14, gap: 12 }}>
               <Toggle on={s.watchdog.ha.enabled} onChange={(v) => set('watchdog', { ha: { ...s.watchdog.ha, enabled: v } })} label="Ultima risorsa: presa smart via Home Assistant" hint="Se il router è bloccato e non risponde, spegne e riaccende la presa" />
               {s.watchdog.ha.enabled && (
-                <>
-                  <Field label="URL Home Assistant"><input className="input" value={s.watchdog.ha.url} onChange={(e) => set('watchdog', { ha: { ...s.watchdog.ha, url: e.target.value } })} /></Field>
-                  <div className="grid g-2" style={{ gap: 14 }}>
-                    <Field label="Entità (switch)"><input className="input" value={s.watchdog.ha.entityId} onChange={(e) => set('watchdog', { ha: { ...s.watchdog.ha, entityId: e.target.value } })} /></Field>
-                    <Field label="Token di accesso"><input className="input" type="password" value={s.watchdog.ha.token} placeholder={s.watchdog.ha.has_token ? '•••••• (salvato)' : ''} onChange={(e) => set('watchdog', { ha: { ...s.watchdog.ha, token: e.target.value } })} /></Field>
-                  </div>
-                </>
+                <Field label="Entità della presa (switch)" hint="Connessione a Home Assistant configurata nella sezione Home Assistant qui sotto">
+                  <input className="input" value={s.watchdog.ha.entityId} onChange={(e) => set('watchdog', { ha: { ...s.watchdog.ha, entityId: e.target.value } })} />
+                </Field>
               )}
             </div>
+          </div>
+        </Card>
+
+        <Card>
+          <CardHead icon={Bell} title="Notifiche push" sub="Avvisi sul telefono; se internet è giù vengono inviati appena torna" />
+          <div className="stack" style={{ gap: 16 }}>
+            <div className="inset stack" style={{ padding: 14, gap: 12 }}>
+              <Toggle on={s.notify.ntfy.enabled} onChange={(v) => set('notify', { ntfy: { ...s.notify.ntfy, enabled: v } })} label="ntfy" hint="App gratuita (ntfy.sh) o server ntfy su Umbrel" />
+              {s.notify.ntfy.enabled && (
+                <div className="grid g-2" style={{ gap: 14 }}>
+                  <Field label="URL del topic"><input className="input" value={s.notify.ntfy.url} onChange={(e) => set('notify', { ntfy: { ...s.notify.ntfy, url: e.target.value } })} /></Field>
+                  <Field label="Token (opzionale)"><input className="input" type="password" value={s.notify.ntfy.token} placeholder={s.notify.ntfy.has_token ? '•••••• (salvato)' : ''} onChange={(e) => set('notify', { ntfy: { ...s.notify.ntfy, token: e.target.value } })} /></Field>
+                </div>
+              )}
+            </div>
+            <div className="inset stack" style={{ padding: 14, gap: 12 }}>
+              <Toggle on={s.notify.telegram.enabled} onChange={(v) => set('notify', { telegram: { ...s.notify.telegram, enabled: v } })} label="Telegram" hint="Crea un bot con @BotFather e scrivigli un messaggio" />
+              {s.notify.telegram.enabled && (
+                <div className="grid g-2" style={{ gap: 14 }}>
+                  <Field label="Token del bot"><input className="input" type="password" value={s.notify.telegram.botToken} placeholder={s.notify.telegram.has_botToken ? '•••••• (salvato)' : ''} onChange={(e) => set('notify', { telegram: { ...s.notify.telegram, botToken: e.target.value } })} /></Field>
+                  <Field label="Chat ID"><input className="input" value={s.notify.telegram.chatId} onChange={(e) => set('notify', { telegram: { ...s.notify.telegram, chatId: e.target.value } })} /></Field>
+                </div>
+              )}
+            </div>
+            <div className="inset stack" style={{ padding: 14, gap: 12 }}>
+              <Toggle on={s.notify.ha.enabled} onChange={(v) => set('notify', { ha: { ...s.notify.ha, enabled: v } })} label="App Home Assistant" hint="Usa il servizio notify della app companion" />
+              {s.notify.ha.enabled && (
+                <Field label="Servizio notify" hint="es. mobile_app_iphone_di_marco (senza «notify.»)"><input className="input" value={s.notify.ha.service} onChange={(e) => set('notify', { ha: { ...s.notify.ha, service: e.target.value } })} /></Field>
+              )}
+            </div>
+            <div>
+              <div className="field"><label>Cosa notificare</label></div>
+              <div className="hstack wrap" style={{ gap: 8, marginTop: 8 }}>
+                {([['internet', 'Internet / WAN'], ['geo', 'Traffico in watchlist'], ['newDevice', 'Nuovi dispositivi'], ['deviceOffline', 'Dispositivi offline'], ['watchdog', 'Azioni e riavvii']] as const).map(([k, l]) => (
+                  <button key={k} className={`btn sm ${s.notify.types[k] ? 'primary' : ''}`} aria-pressed={s.notify.types[k]} onClick={() => set('notify', { types: { ...s.notify.types, [k]: !s.notify.types[k] } })}>{l}</button>
+                ))}
+              </div>
+            </div>
+            <div className="hstack wrap"><button className="btn sm" onClick={sendTest}>Invia notifica di prova</button><TestResult k="notify" /><span className="meta">Salva prima di provare</span></div>
+          </div>
+        </Card>
+
+        <Card>
+          <CardHead icon={House} title="Home Assistant" sub="Usato per la presa smart del watchdog e per le notifiche" />
+          <div className="stack" style={{ gap: 14 }}>
+            <Field label="URL"><input className="input" value={s.homeassistant.url} onChange={(e) => set('homeassistant', { url: e.target.value })} /></Field>
+            <Field label="Token di accesso a lunga durata" hint="Profilo → Sicurezza → Token di accesso a lunga durata">
+              <input className="input" type="password" value={s.homeassistant.token} placeholder={s.homeassistant.has_token ? '•••••• (salvato)' : ''} onChange={(e) => set('homeassistant', { token: e.target.value })} />
+            </Field>
           </div>
         </Card>
 
