@@ -28,5 +28,5 @@ export function fmtBytes(n: number) {
   const u = ['B', 'KB', 'MB', 'GB', 'TB'];
   let i = 0;
   while (n >= 1000 && i < u.length - 1) { n /= 1000; i++; }
-  return `${n.toFixed(n >= 100 || i === 0 ? 0 : 1)} ${u[i]}`;
+  return `${n.toLocaleString('it-IT', { maximumFractionDigits: n >= 100 || i === 0 ? 0 : 1 })} ${u[i]}`;
 }

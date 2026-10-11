@@ -41,4 +41,5 @@ Everything below is either outward-facing (needs your accounts), needs your real
 - The full HomeNet container running against the OpenWrt container: all router collectors green.
 - AdGuard Home v0.107.57 and v1.0.0-b.1 containers: status, query log, paging, blocked/answer parsing, auth errors.
 - `sms_tool` JSON format checked against its source; multipart SMS merge.
+- Events log page (filters, pagination) and CSV export of destinations.
 - 14 unit/integration tests (`npm test`), load benchmark (`npm run bench`), Docker image build + run as uid 1000, desktop + 390 px mobile layouts.
