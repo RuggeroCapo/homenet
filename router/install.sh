@@ -12,7 +12,13 @@ if command -v apk >/dev/null 2>&1; then UPD="apk update"; ADD="apk add"; else UP
 need=""
 [ -e /usr/lib/uhttpd_ubus.so ] || need="$need uhttpd-mod-ubus"
 command -v jsonfilter >/dev/null 2>&1 || need="$need jsonfilter"
-if [ -n "$need" ]; then echo "Installing:$need"; $UPD >/dev/null; $ADD $need; fi
+# kernels without /proc/net/nf_conntrack need the conntrack CLI instead
+[ -r /proc/net/nf_conntrack ] || command -v conntrack >/dev/null 2>&1 || need="$need conntrack"
+if [ -n "$need" ]; then
+	echo "Installing:$need"
+	$UPD >/dev/null 2>&1 || true
+	$ADD $need || echo "WARNING: could not install$need (no internet on the router?). Install them manually and re-run."
+fi
 
 mkdir -p /usr/libexec/rpcd /usr/share/rpcd/acl.d /etc/sysctl.d
 cp "$DIR/homenet" /usr/libexec/rpcd/homenet
@@ -23,7 +29,7 @@ grep -q '^/etc/homenet.conf$' /etc/sysupgrade.conf 2>/dev/null || echo /etc/home
 
 # Byte counters on conntrack entries (needed for per-device / per-destination traffic)
 echo 'net.netfilter.nf_conntrack_acct=1' > /etc/sysctl.d/90-homenet.conf
-sysctl -w net.netfilter.nf_conntrack_acct=1 >/dev/null
+sysctl -w net.netfilter.nf_conntrack_acct=1 >/dev/null 2>&1 || echo "WARNING: could not enable conntrack byte accounting now (applied at next boot)"
 
 # Dedicated RPC login, limited to the "homenet" ubus object
 uci -q delete rpcd.homenet || true
@@ -43,7 +49,11 @@ sleep 1
 echo
 echo "HomeNet plugin installed. Self-test:"
 ubus call homenet info >/dev/null && echo "  info ........ ok"
-ubus call homenet conntrack >/dev/null && echo "  conntrack ... ok"
+if ubus call homenet conntrack | grep -q '"error"'; then
+	echo "  conntrack ... NOT AVAILABLE (install the 'conntrack' package): per-device traffic will be missing"
+else
+	echo "  conntrack ... ok"
+fi
 echo "  modem method: $(ubus call homenet modem | jsonfilter -e '@.method')"
 if [ "$(uci -q get firewall.@defaults[0].flow_offloading)" = 1 ]; then
 	echo

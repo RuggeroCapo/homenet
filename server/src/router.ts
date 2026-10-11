@@ -1,4 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
+import http from 'node:http';
+import https from 'node:https';
 // Client for the "homenet" rpcd plugin on OpenWrt (ubus over HTTP JSON-RPC) + parsers for its raw output.
 
 export type FlowRow = [proto: string, src: string, sport: number, dst: string, dport: number, dOrig: number, rsrc: string, dReply: number, isNew: number];
@@ -22,6 +24,38 @@ export interface RouterApi {
 
 const NULL_SESSION = '00000000000000000000000000000000';
 
+/**
+ * JSON POST over http/https. Routers with luci-ssl serve a self-signed certificate,
+ * so certificate validation is skipped for the router (LAN only, credentials are low-privilege).
+ */
+function postJson(url: string, body: unknown, timeoutMs: number): Promise<any> {
+  const u = new URL(url);
+  const mod = u.protocol === 'https:' ? https : http;
+  const data = JSON.stringify(body);
+  return new Promise((resolve, reject) => {
+    const req = mod.request(u, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'content-length': Buffer.byteLength(data) },
+      timeout: timeoutMs,
+      rejectUnauthorized: false,
+    }, (res) => {
+      const chunks: Buffer[] = [];
+      res.on('data', (c: Buffer) => chunks.push(c));
+      res.on('end', () => {
+        const text = Buffer.concat(chunks).toString('utf8');
+        if ((res.statusCode ?? 0) >= 300 && (res.statusCode ?? 0) < 400) {
+          return reject(Object.assign(new Error(`router redirects to ${res.headers.location ?? '?'}`), { location: res.headers.location }));
+        }
+        if ((res.statusCode ?? 0) >= 400) return reject(new Error(`router HTTP ${res.statusCode}${res.statusCode === 404 ? ' (is uhttpd-mod-ubus installed?)' : ''}`));
+        try { resolve(JSON.parse(text)); } catch { reject(new Error('router returned invalid JSON')); }
+      });
+    });
+    req.on('timeout', () => req.destroy(new Error(`router did not answer within ${Math.round(timeoutMs / 1000)} s`)));
+    req.on('error', reject);
+    req.end(data);
+  });
+}
+
 export class UbusClient implements RouterApi {
   private session = NULL_SESSION;
   private id = 0;
@@ -29,14 +63,16 @@ export class UbusClient implements RouterApi {
   constructor(private baseUrl: string, private username: string, private password: string) {}
 
   private async rpc(method: string, params: unknown[], timeoutMs: number): Promise<any> {
-    const res = await fetch(this.baseUrl.replace(/\/+$/, '') + '/ubus', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ jsonrpc: '2.0', id: ++this.id, method, params }),
-      signal: AbortSignal.timeout(timeoutMs),
-    });
-    if (!res.ok) throw new Error(`router HTTP ${res.status}`);
-    return res.json();
+    const body = { jsonrpc: '2.0', id: ++this.id, method, params };
+    try {
+      return await postJson(this.baseUrl.replace(/\/+$/, '') + '/ubus', body, timeoutMs);
+    } catch (e) {
+      // uhttpd with redirect_https: switch to the https origin once and retry
+      const loc = (e as { location?: string }).location;
+      if (!loc) throw e;
+      this.baseUrl = new URL(loc, this.baseUrl).origin;
+      return postJson(this.baseUrl + '/ubus', body, timeoutMs);
+    }
   }
 
   private async login() {
