@@ -1,5 +1,6 @@
 import { Activity, Bell, Globe, LayoutDashboard, Monitor, Search as SearchIcon, Settings as SettingsIcon, Waypoints } from 'lucide-react';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { ACCESS_CHANGED, LockdownBanner } from './components/Access';
 import { DeviceIcon, LetterAvatar, UiProvider } from './components/ui';
 import { api, fmtTime, hashColor, usePoll, useHashRoute, useStoredState, type Range } from './lib';
 import { DeviceDetail } from './pages/DeviceDetail';
@@ -91,18 +92,21 @@ function GlobalSearch() {
 }
 
 function useSystem() {
-  const { data } = usePoll<Status>('/api/status', 30_000);
+  const { data, reload } = usePoll<Status>('/api/status', 30_000);
+  useEffect(() => {
+    window.addEventListener(ACCESS_CHANGED, reload);
+    return () => window.removeEventListener(ACCESS_CHANGED, reload);
+  }, [reload]);
   if (!data) return null;
   const problems = Object.entries(data.collectors).filter(([, c]) => !c.ok);
   const last = Math.max(0, ...Object.values(data.collectors).map((c) => c.lastOk ?? 0));
   const unconfigured = !data.configured.router || !data.configured.adguard;
   const tone = problems.length ? 'err' : unconfigured ? 'warn' : 'ok';
   const label = problems.length ? `${problems.length} ${problems.length === 1 ? 'collettore' : 'collettori'} in errore` : unconfigured ? 'Configurazione incompleta' : 'Sistemi operativi';
-  return { data, tone, label, last };
+  return { data, tone, label, last, reload };
 }
 
-function SystemChip() {
-  const sys = useSystem();
+function SystemChip({ sys }: { sys: ReturnType<typeof useSystem> }) {
   if (!sys) return null;
   const detail = `${sys.label}${sys.data.demo ? ' · modalità demo' : ''} · aggiornato ${sys.last ? fmtTime(sys.last / 1000) : '—'}`;
   return (
@@ -127,6 +131,7 @@ export default function App() {
   const route = useHashRoute();
   const [range, setRange] = useStoredState<Range>('homenet.range', '24h');
   const props = { range, setRange };
+  const sys = useSystem();
   useScrolled();
   let page: ReactNode;
   const m = route.match(/^\/devices\/(\d+)/);
@@ -158,10 +163,13 @@ export default function App() {
           </nav>
           <div className="appbar-tools">
             <GlobalSearch />
-            <SystemChip />
+            <SystemChip sys={sys} />
           </div>
         </header>
-        <main className="main" key={route.split('?')[0]}>{page}</main>
+        <main className="main" key={route.split('?')[0]}>
+          <LockdownBanner st={sys?.data.access} onEnd={() => { void sys?.reload(); window.dispatchEvent(new Event(ACCESS_CHANGED)); }} />
+          {page}
+        </main>
       </div>
     </UiProvider>
   );

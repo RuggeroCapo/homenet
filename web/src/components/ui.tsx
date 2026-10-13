@@ -116,6 +116,7 @@ function eventIcon(e: EventRow): LucideIcon {
     case 'device_offline': return Ban;
     case 'router_boot': case 'action': return Power;
     case 'wan_up': return Cable;
+    case 'access': case 'access_info': return e.severity === 'success' ? CircleCheck : Ban;
     default: return e.severity === 'success' ? CircleCheck : e.severity === 'error' || e.severity === 'warning' ? TriangleAlert : Info;
   }
 }

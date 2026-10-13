@@ -5,7 +5,7 @@ import { Card, CardHead, EventList, Seg, Skeleton } from '../components/ui';
 import { api } from '../lib';
 import type { EventRow } from '../types';
 
-type Group = '' | 'internet' | 'devices' | 'geo' | 'router';
+type Group = '' | 'internet' | 'devices' | 'geo' | 'router' | 'access';
 const PAGE = 50;
 
 export function Events() {
@@ -38,7 +38,7 @@ export function Events() {
       <PageHead title="Eventi" subtitle="Registro di connettività, dispositivi, avvisi della watchlist e azioni sul router." />
       <Card>
         <CardHead icon={Clock} title="Registro eventi">
-          <Seg value={group} onChange={setGroup} options={[['', 'Tutti'], ['internet', 'Internet'], ['devices', 'Dispositivi'], ['geo', 'Watchlist'], ['router', 'Router']]} />
+          <Seg value={group} onChange={setGroup} options={[['', 'Tutti'], ['internet', 'Internet'], ['devices', 'Dispositivi'], ['geo', 'Watchlist'], ['router', 'Router'], ['access', 'Accesso']]} />
           <select className="select" value={severity} onChange={(e) => setSeverity(e.target.value)} aria-label="Gravità">
             <option value="">Tutte le gravità</option>
             <option value="error">Critico</option>

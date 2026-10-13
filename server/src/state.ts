@@ -17,6 +17,8 @@ export const state = {
   /** live per-device rate from the last conntrack window (bps) */
   deviceRates: new Map<number, { up: number; down: number; ts: number }>(),
   watchdog: { step: 0, lastAction: null as null | { ts: number; action: string } },
+  /** last result of applying the access rules on the router */
+  access: { appliedAt: null as number | null, conntrack: null as boolean | null },
 };
 
 export function collectorOk(name: string) {

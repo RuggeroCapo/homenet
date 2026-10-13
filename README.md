@@ -21,7 +21,15 @@ Self-hosted network watchdog and traffic analytics for Umbrel + OpenWrt + AdGuar
 - Country and network owner (ASN) of every destination, offline (DB-IP lite), with a world map, "who talks to whom", and top networks.
 - **Watchlist alerts** when a device sends data to watch-listed countries (default CN, RU, KP, IR, HK) or to networks whose name matches keywords such as Alibaba / Tencent / Huawei, wherever their servers are.
 
-**Notifications** via ntfy, Telegram or the Home Assistant companion app. You choose which groups to send: internet / WAN, watchlist, new devices, devices offline, watchdog actions. Alerts raised while internet is down are queued and delivered when it comes back.
+**Internet access control** (needs the router plugin v2, OpenWrt 22.03+ with fw4/nftables)
+- **Pause** a device for 30 min, 1–2 h, until tomorrow morning, or until you resume it.
+- **Weekly schedule** per device (e.g. Mon–Fri 23:00 → 07:00, crossing midnight).
+- **Data cap** per device, per day, week or billing cycle. When the cap is reached the device has no internet until the next period; warning at 80 %.
+- **"Only these devices"**: everyone else loses internet for 30 min – 8 h. Devices marked *essential* (Umbrel and Home Assistant by default) always stay online.
+- **Resume now** overrides a schedule window or a reached cap until it would have ended.
+- The LAN keeps working (AdGuard, Umbrel, printers); only internet is cut. Devices are matched by MAC, so phones should keep a stable (per-network) Wi-Fi address.
+
+**Notifications** via ntfy, Telegram or the Home Assistant companion app. You choose which groups to send: internet / WAN, watchlist, new devices, devices offline, watchdog actions, data caps and "only these devices" mode. Alerts raised while internet is down are queued and delivered when it comes back.
 
 **umbrelOS widgets**: live status (internet, latency, download, devices online) and data usage on the Umbrel home screen.
 
@@ -70,12 +78,16 @@ ssh root@192.168.1.1 sh /tmp/install.sh 'choose-a-password'
 ```
 
 The script:
-- installs `uhttpd-mod-ubus`, `jsonfilter` (and `conntrack` if needed) when missing
+- installs `uhttpd-mod-ubus`, `jsonfilter` and `conntrack` when missing
 - copies the plugin to `/usr/libexec/rpcd/homenet`
 - enables conntrack byte accounting
 - creates an RPC user `homenet` that can **only** call the `homenet` object (other ubus calls such as `system.reboot` are denied)
 
 It ends with a self-test. Tested on OpenWrt 23.05 and 24.10. To remove everything: `sh /tmp/uninstall.sh`.
+
+**Updating the plugin** (e.g. for access control): run the same two commands again; your password and `/etc/homenet.conf` are kept.
+
+**How blocking works.** HomeNet sends the full list of blocked MACs to the plugin, which writes them atomically into its own nftables table `inet homenet` (a forward-hook chain that runs before fw4). Each entry carries its end time, so a pause expires on the router even if Umbrel is off. Firewall reloads do not touch the table; a router reboot clears it and HomeNet re-applies it within a minute. When a pause starts, the device's open connections are deleted with `conntrack -D`, so streams stop at once even with flow offloading.
 
 **LTE signal and SMS.** Edit `/etc/homenet.conf` on the router. `MODEM_METHOD=auto` tries ModemManager, then `uqmi`, then AT commands through `sms_tool` (`AT_DEVICE=/dev/ttyUSB2`). AT parsing understands 3GPP `+CSQ`/`+CESQ`/`+COPS`, Quectel `+QENG`/`+QNWINFO` and Huawei `^HCSQ`.
 

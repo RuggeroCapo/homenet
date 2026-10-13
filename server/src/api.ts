@@ -1,15 +1,17 @@
 import type { FastifyInstance } from 'fastify';
+import { ACCESS_PLUGIN, evaluate, getLockdown, MAX_LOCKDOWN_SECS, periodBounds, setLockdown, validSchedule, type AccessController, type CapPeriod } from './access.js';
 import { AdGuardClient } from './adguard.js';
 import { categoryOf } from './categories.js';
 import type { RouterCollector } from './collectors/router.js';
 import { runAction } from './collectors/watchdog.js';
 import { dayBucket, db, dbSizeBytes, localDay } from './db.js';
-import { displayName, getDevice, type DeviceRow } from './devices.js';
+import { DEVICE_TABLES, displayName, getDevice, type DeviceRow } from './devices.js';
 import { geoStatus } from './geo.js';
 import { UbusClient } from './router.js';
 import { adguardConfigured, DEMO, getSettings, publicSettings, routerConfigured, updateSettings, type Settings } from './settings.js';
 import { state } from './state.js';
 import { send as sendNotice } from './notify.js';
+import { addEvent } from './events.js';
 
 const VERSION = process.env.npm_package_version ?? '0.1.0';
 const started = Date.now();
@@ -75,10 +77,8 @@ function liveRate(id: number) {
 export function dataUsage() {
   const plan = getSettings().dataPlan;
   const now = new Date();
-  const start = new Date(now.getFullYear(), now.getMonth(), plan.cycleDay);
-  if (now.getDate() < plan.cycleDay) start.setMonth(start.getMonth() - 1);
-  const end = new Date(start);
-  end.setMonth(end.getMonth() + 1);
+  const { start: startTs, end: endTs } = periodBounds('cycle', now, plan.cycleDay);
+  const start = new Date(startTs * 1000), end = new Date(endTs * 1000);
   const ts = (d: Date) => Math.floor(d.getTime() / 1000);
   const hasLte = (db.prepare("SELECT 1 FROM wan_daily WHERE kind = 'lte' LIMIT 1").get()) !== undefined;
   const kindFilter = hasLte ? "AND kind = 'lte'" : '';
@@ -106,6 +106,7 @@ function devicePublic(d: DeviceRow) {
     ip: d.ip ?? (d.mac.startsWith('ip:') ? d.mac.slice(3) : null), mac: d.mac.startsWith('ip:') ? null : d.mac,
     online: !!d.online, lastSeen: d.last_seen, firstSeen: d.first_seen, notifyOffline: !!d.notify_offline,
     wifiSignal: d.wifi_signal, wifiIface: d.wifi_iface,
+    access: evaluate(d),
   };
 }
 
@@ -187,7 +188,20 @@ function samplesSeries(from: number, to: number, secs: number) {
   };
 }
 
-export function registerApi(app: FastifyInstance, getRouter: () => RouterCollector | null) {
+function accessStatus() {
+  const lockdown = getLockdown();
+  const blocked = db.prepare("SELECT * FROM devices WHERE mac NOT LIKE 'ip:%'").all() as DeviceRow[];
+  const plugin = state.router?.plugin ?? null;
+  return {
+    lockdown: lockdown ? { ...lockdown, names: lockdown.allow.map((id) => getDevice(id)).filter((d): d is DeviceRow => !!d).map(displayName) } : null,
+    blocked: blocked.filter((d) => evaluate(d, undefined, null).blocked).length,
+    pluginOk: plugin === null ? null : plugin >= ACCESS_PLUGIN,
+    conntrack: state.access.conntrack,
+    error: state.collectors['router.access']?.ok === false ? state.collectors['router.access'].lastError ?? null : null,
+  };
+}
+
+export function registerApi(app: FastifyInstance, getRouter: () => RouterCollector | null, access: AccessController) {
   app.get('/api/status', async () => ({
     version: VERSION,
     demo: DEMO,
@@ -202,6 +216,7 @@ export function registerApi(app: FastifyInstance, getRouter: () => RouterCollect
     conntrackTruncated: state.conntrackTruncated,
     offload: state.router?.offload ?? false,
     acct: state.router?.acct ?? true,
+    access: accessStatus(),
   }));
 
   // ---- umbrelOS home-screen widgets (fetched by umbreld at server:3000) ----
@@ -368,18 +383,84 @@ export function registerApi(app: FastifyInstance, getRouter: () => RouterCollect
   app.patch('/api/devices/:id', async (req, reply) => {
     const id = Number((req.params as { id: string }).id);
     if (!getDevice(id)) return reply.code(404).send({ error: 'not found' });
-    const body = (req.body ?? {}) as { alias?: string | null; kind?: string; notifyOffline?: boolean };
+    const body = (req.body ?? {}) as { alias?: string | null; kind?: string; notifyOffline?: boolean; essential?: boolean; cap?: { bytes: number; period: CapPeriod } | null; schedule?: unknown };
+    let schedule: string | null | undefined;
+    try { if (body.schedule !== undefined) schedule = body.schedule === null ? null : JSON.stringify(validSchedule(body.schedule)); } catch (e) { return reply.code(400).send({ error: (e as Error).message }); }
+    if (body.cap && (!(Number(body.cap.bytes) > 0) || !['day', 'week', 'cycle'].includes(body.cap.period))) return reply.code(400).send({ error: 'limite dati non valido' });
     if (body.alias !== undefined) db.prepare('UPDATE devices SET alias = ? WHERE id = ?').run(body.alias?.trim() || null, id);
     if (body.kind !== undefined) db.prepare('UPDATE devices SET kind = ? WHERE id = ?').run(String(body.kind), id);
     if (body.notifyOffline !== undefined) db.prepare('UPDATE devices SET notify_offline = ? WHERE id = ?').run(body.notifyOffline ? 1 : 0, id);
+    if (body.essential !== undefined) db.prepare('UPDATE devices SET essential = ? WHERE id = ?').run(body.essential ? 1 : 0, id);
+    // new rules apply right away: a previous "resume anyway" no longer holds
+    if (body.cap !== undefined) {
+      db.prepare('UPDATE devices SET cap_bytes = ?, cap_period = ?, override_until = NULL WHERE id = ?').run(body.cap ? Math.round(Number(body.cap.bytes)) : null, body.cap?.period ?? null, id);
+    }
+    if (schedule !== undefined) db.prepare('UPDATE devices SET schedule = ?, override_until = NULL WHERE id = ?').run(schedule, id);
+    if (body.essential !== undefined || body.cap !== undefined || schedule !== undefined) await access.kick();
     clearApiCache();
     return devicePublic(getDevice(id)!);
+  });
+
+  // ---- internet access: pause / resume / "only these devices" ----
+  const controllable = (id: number): { d: DeviceRow } | { error: string; code: number } => {
+    const d = getDevice(id);
+    if (!d) return { error: 'not found', code: 404 };
+    if (d.mac.startsWith('ip:')) return { error: 'MAC sconosciuto: il dispositivo non può essere bloccato', code: 400 };
+    return { d };
+  };
+
+  app.post('/api/devices/:id/pause', async (req, reply) => {
+    const id = Number((req.params as { id: string }).id);
+    const c = controllable(id);
+    if ('error' in c) return reply.code(c.code).send({ error: c.error });
+    const until = (req.body as { until?: number | null } | undefined)?.until ?? null;
+    const now = Math.floor(Date.now() / 1000);
+    if (until !== null && (!Number.isFinite(until) || until <= now || until > now + 31 * 86400)) return reply.code(400).send({ error: 'durata non valida' });
+    db.prepare('UPDATE devices SET pause_until = ? WHERE id = ?').run(until === null ? 0 : Math.round(until), id);
+    await access.kick([c.d.mac]);
+    clearApiCache();
+    return devicePublic(getDevice(id)!);
+  });
+
+  app.post('/api/devices/:id/resume', async (req, reply) => {
+    const id = Number((req.params as { id: string }).id);
+    const c = controllable(id);
+    if ('error' in c) return reply.code(c.code).send({ error: c.error });
+    // a schedule window or a reached cap is skipped until it would have ended
+    const a = evaluate({ ...c.d, pause_until: null, override_until: null }, undefined, null);
+    const override = a.blocked ? a.until : null;
+    db.prepare('UPDATE devices SET pause_until = NULL, override_until = ? WHERE id = ?').run(override, id);
+    await access.kick();
+    clearApiCache();
+    return devicePublic(getDevice(id)!);
+  });
+
+  app.post('/api/lockdown', async (req, reply) => {
+    const body = (req.body ?? {}) as { allow?: number[]; minutes?: number };
+    const secs = Math.round(Number(body.minutes) * 60);
+    if (!(secs > 0 && secs <= MAX_LOCKDOWN_SECS)) return reply.code(400).send({ error: 'durata non valida (massimo 24 ore)' });
+    const ids = [...new Set((body.allow ?? []).map(Number))].filter((id) => getDevice(id) && !getDevice(id)!.mac.startsWith('ip:'));
+    if (!ids.length) return reply.code(400).send({ error: 'scegli almeno un dispositivo che resta connesso' });
+    const now = Math.floor(Date.now() / 1000);
+    setLockdown({ until: now + secs, allow: ids, started: now });
+    const names = ids.map((id) => displayName(getDevice(id)!));
+    addEvent('access', 'warning', 'Internet solo per alcuni dispositivi', `${names.join(', ')} · per ${Math.round(secs / 60)} min`);
+    await access.kick();
+    clearApiCache();
+    return accessStatus();
+  });
+
+  app.delete('/api/lockdown', async () => {
+    setLockdown(null);
+    await access.kick();
+    clearApiCache();
+    return accessStatus();
   });
 
   app.delete('/api/devices/:id', async (req) => {
     const id = Number((req.params as { id: string }).id);
     db.transaction(() => {
-      for (const t of ['traffic_5m', 'flows_1h', 'dns_1h', 'geo_1h', 'base_1h', 'geo_1d', 'base_1d']) db.prepare(`DELETE FROM ${t} WHERE device_id = ?`).run(id);
+      for (const t of DEVICE_TABLES) db.prepare(`DELETE FROM ${t} WHERE device_id = ?`).run(id);
       db.prepare('DELETE FROM devices WHERE id = ?').run(id);
     })();
     clearApiCache();
@@ -499,6 +580,7 @@ export function registerApi(app: FastifyInstance, getRouter: () => RouterCollect
       devices: ['new_device', 'device_offline', 'device_online'],
       geo: ['geo_alert'],
       router: ['router_boot', 'action', 'watchdog'],
+      access: ['access', 'access_info'],
     };
     const where: string[] = [];
     const args: unknown[] = [];

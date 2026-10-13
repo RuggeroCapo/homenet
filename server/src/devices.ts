@@ -5,6 +5,8 @@ import { addEvent } from './events.js';
 export interface DeviceRow {
   id: number; mac: string; hostname: string | null; alias: string | null; kind: string | null; ip: string | null;
   first_seen: number; last_seen: number; online: number; notify_offline: number; wifi_signal: number | null; wifi_iface: string | null;
+  pause_until: number | null; override_until: number | null; essential: number;
+  cap_bytes: number | null; cap_period: string | null; schedule: string | null;
 }
 
 const KIND_RULES: Array<[RegExp, string]> = [
@@ -60,12 +62,15 @@ export function isLan(ip: string) {
 
 // ---------- registry ----------
 
+/** Tables holding per-device history (deleted with the device). */
+export const DEVICE_TABLES = ['traffic_5m', 'flows_1h', 'dns_1h', 'geo_1h', 'base_1h', 'geo_1d', 'base_1d', 'device_daily'];
+
 const byMac = new Map<string, number>();
 const byIp = new Map<string, number>();
 const lastActive = new Map<number, number>();
 
 const now = () => Math.floor(Date.now() / 1000);
-const insert = db.prepare('INSERT OR IGNORE INTO devices (mac, hostname, kind, ip, first_seen, last_seen) VALUES (?, ?, ?, ?, ?, ?)');
+const insert = db.prepare('INSERT OR IGNORE INTO devices (mac, hostname, kind, ip, first_seen, last_seen, essential) VALUES (?, ?, ?, ?, ?, ?, ?)');
 const getByMac = db.prepare('SELECT * FROM devices WHERE mac = ?');
 
 for (const d of db.prepare('SELECT id, mac, ip FROM devices').all() as DeviceRow[]) {
@@ -75,7 +80,9 @@ for (const d of db.prepare('SELECT id, mac, ip FROM devices').all() as DeviceRow
 
 function create(mac: string, ip: string | null, hostname: string | null): number {
   const t = now();
-  const info = insert.run(mac, hostname, guessKind(hostname), ip, t, t);
+  const kind = guessKind(hostname);
+  // servers (Umbrel itself) and Home Assistant keep internet in "only this device" mode
+  const info = insert.run(mac, hostname, kind, ip, t, t, kind === 'server' || kind === 'homeassistant' ? 1 : 0);
   const id = (getByMac.get(mac) as DeviceRow).id;
   byMac.set(mac, id);
   if (info.changes && !mac.startsWith('ip:')) {
@@ -102,6 +109,8 @@ function mergeDevice(from: number, to: number) {
       ON CONFLICT(ts, device_id, ip, proto, port) DO UPDATE SET up = up + excluded.up, down = down + excluded.down, conns = conns + excluded.conns`).run(to, from);
     db.prepare(`INSERT INTO dns_1h (ts, device_id, domain_id, queries, blocked) SELECT ts, ?, domain_id, queries, blocked FROM dns_1h WHERE device_id = ?
       ON CONFLICT(ts, device_id, domain_id) DO UPDATE SET queries = queries + excluded.queries, blocked = blocked + excluded.blocked`).run(to, from);
+    db.prepare(`INSERT INTO device_daily (day, device_id, up, down) SELECT day, ?, up, down FROM device_daily WHERE device_id = ?
+      ON CONFLICT(day, device_id) DO UPDATE SET up = up + excluded.up, down = down + excluded.down`).run(to, from);
     for (const g of ['geo_1h', 'geo_1d']) {
       db.prepare(`INSERT INTO ${g} (ts, device_id, cc, asn, up, down, conns) SELECT ts, ?, cc, asn, up, down, conns FROM ${g} WHERE device_id = ?
         ON CONFLICT(ts, device_id, cc, asn) DO UPDATE SET up = up + excluded.up, down = down + excluded.down, conns = conns + excluded.conns`).run(to, from);
@@ -110,7 +119,7 @@ function mergeDevice(from: number, to: number) {
       db.prepare(`INSERT INTO ${b} (ts, device_id, base_id, queries, blocked, up, down) SELECT ts, ?, base_id, queries, blocked, up, down FROM ${b} WHERE device_id = ?
         ON CONFLICT(ts, device_id, base_id) DO UPDATE SET queries = queries + excluded.queries, blocked = blocked + excluded.blocked, up = up + excluded.up, down = down + excluded.down`).run(to, from);
     }
-    for (const t of ['traffic_5m', 'flows_1h', 'dns_1h', 'geo_1h', 'base_1h', 'geo_1d', 'base_1d']) db.prepare(`DELETE FROM ${t} WHERE device_id = ?`).run(from);
+    for (const t of DEVICE_TABLES) db.prepare(`DELETE FROM ${t} WHERE device_id = ?`).run(from);
     db.prepare('UPDATE events SET device_id = ? WHERE device_id = ?').run(to, from);
     db.prepare('DELETE FROM devices WHERE id = ?').run(from);
   })();
@@ -146,8 +155,8 @@ export function upsertHost(mac: string, ip: string | null, hostname: string | nu
     db.prepare('UPDATE devices SET ip = ? WHERE id = ? AND (ip IS NULL OR ip != ?)').run(ip, id, ip);
   }
   if (name) {
-    db.prepare("UPDATE devices SET hostname = ?, kind = CASE WHEN kind IS NULL OR kind = 'unknown' THEN ? ELSE kind END WHERE id = ? AND (hostname IS NULL OR hostname != ?)")
-      .run(name, guessKind(name), id, name);
+    db.prepare("UPDATE devices SET hostname = @name, kind = CASE WHEN kind IS NULL OR kind = 'unknown' THEN @kind ELSE kind END, essential = CASE WHEN (kind IS NULL OR kind = 'unknown') AND @kind IN ('server', 'homeassistant') THEN 1 ELSE essential END WHERE id = @id AND (hostname IS NULL OR hostname != @name)")
+      .run({ name, kind: guessKind(name), id });
   }
   if (ip) byIp.set(ip, id);
   return id;
@@ -166,15 +175,15 @@ export function deviceForIp(ip: string, nameHint?: string | null): number {
   }
   byIp.set(ip, id);
   if (nameHint) {
-    db.prepare("UPDATE devices SET hostname = ?, kind = CASE WHEN kind IS NULL OR kind = 'unknown' THEN ? ELSE kind END WHERE id = ? AND hostname IS NULL")
-      .run(nameHint, guessKind(nameHint), id);
+    db.prepare("UPDATE devices SET hostname = @name, kind = CASE WHEN kind IS NULL OR kind = 'unknown' THEN @kind ELSE kind END, essential = CASE WHEN (kind IS NULL OR kind = 'unknown') AND @kind IN ('server', 'homeassistant') THEN 1 ELSE essential END WHERE id = @id AND hostname IS NULL")
+      .run({ name: nameHint, kind: guessKind(nameHint), id });
   }
   return id;
 }
 
 export function nameHintFor(id: number, name: string) {
-  db.prepare("UPDATE devices SET hostname = ?, kind = CASE WHEN kind IS NULL OR kind = 'unknown' THEN ? ELSE kind END WHERE id = ? AND hostname IS NULL")
-    .run(name, guessKind(name), id);
+  db.prepare("UPDATE devices SET hostname = @name, kind = CASE WHEN kind IS NULL OR kind = 'unknown' THEN @kind ELSE kind END, essential = CASE WHEN (kind IS NULL OR kind = 'unknown') AND @kind IN ('server', 'homeassistant') THEN 1 ELSE essential END WHERE id = @id AND hostname IS NULL")
+    .run({ name, kind: guessKind(name), id });
 }
 
 export function markActive(id: number, ts = now()) {

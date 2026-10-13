@@ -6,7 +6,7 @@ import { guessKind } from './devices.js';
 import { addEvent } from './events.js';
 import { registerDemoGeo } from './geo.js';
 import { baseDomain } from './collectors/dns.js';
-import type { FlowRow, RawConntrack, RawHosts, RawInfo, RawWifi, RouterAction, RouterApi } from './router.js';
+import type { AccessArgs, AccessResult, FlowRow, RawConntrack, RawHosts, RawInfo, RawWifi, RouterAction, RouterApi } from './router.js';
 import { log } from './log.js';
 
 interface Dest { ip: string; domain: string; cc: string; asn: number; org: string; port: number; down: number; up: number }
@@ -81,11 +81,13 @@ export class DemoRouter implements RouterApi {
   private rx = 8.4e11;
   private tx = 9.1e10;
   private ports = new Map<string, number>();
+  /** MACs without internet, as the router plugin would enforce them */
+  private blocked = new Set<string>();
 
   async info(): Promise<RawInfo> {
     const up = Date.now() / 1000 - this.boot;
     return {
-      plugin: 1,
+      plugin: 2,
       board: { model: 'GL.iNet GL-X3000', hostname: 'OpenWrt', release: { description: 'OpenWrt 23.05.4 r24012' } },
       system: { uptime: Math.floor(up), load: [0.21 * 65536, 0.18 * 65536, 0.15 * 65536], memory: { total: 512e6, free: 210e6, available: 300e6 } },
       ifaces: {
@@ -123,6 +125,7 @@ export class DemoRouter implements RouterApi {
     this.last = now;
     const flows: FlowRow[] = [];
     for (const dev of DEVS) {
+      if (this.blocked.has(dev.mac)) continue;
       const a = activity(dev.profile, now) * dev.scale;
       for (const k of dev.dests) {
         const d = D[k];
@@ -165,6 +168,14 @@ export class DemoRouter implements RouterApi {
 
   async action(name: RouterAction, ifaces: string[]) {
     log.info(`demo: router action ${name} (${ifaces.join(' ')})`);
+  }
+
+  async access(args: AccessArgs): Promise<AccessResult> {
+    const block = args.block.split(' ').filter(Boolean).map((e) => e.split('=')[0]);
+    const allow = new Set(args.allow.split(' ').filter(Boolean));
+    this.blocked = new Set([...block, ...(Number(args.lock) > 0 ? DEVS.map((d) => d.mac).filter((m) => !allow.has(m)) : [])]);
+    log.info(`demo: access block=[${block.join(' ')}] lock=${args.lock} allow=[${[...allow].join(' ')}]`);
+    return { ok: true, conntrack: true, killed: args.kill.split(' ').filter(Boolean).length };
   }
 }
 
@@ -218,7 +229,7 @@ export function backfillDemo() {
   const now = Math.floor(Date.now() / 1000);
   const start = now - 7 * 86400;
   const t0 = start - (start % 300);
-  const insDev = db.prepare('INSERT OR IGNORE INTO devices (mac, hostname, kind, ip, first_seen, last_seen, online) VALUES (?, ?, ?, ?, ?, ?, 1)');
+  const insDev = db.prepare("INSERT OR IGNORE INTO devices (mac, hostname, kind, ip, first_seen, last_seen, online, essential) VALUES (?, ?, ?, ?, ?, ?, 1, ?)");
   const insT = db.prepare('INSERT OR REPLACE INTO traffic_5m (ts, device_id, up, down) VALUES (?, ?, ?, ?)');
   const insF = db.prepare(`INSERT INTO flows_1h (ts, device_id, ip, proto, port, up, down, conns, cc, asn, domain_id) VALUES (?, ?, ?, 6, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(ts, device_id, ip, proto, port) DO UPDATE SET up = up + excluded.up, down = down + excluded.down, conns = conns + excluded.conns`);
@@ -232,7 +243,8 @@ export function backfillDemo() {
     for (const d of Object.values(D)) insA.run(d.asn, d.org);
     const ids = new Map<string, number>();
     for (const dev of DEVS) {
-      insDev.run(dev.mac, dev.name, guessKind(dev.name), dev.ip, start, now);
+      const kind = guessKind(dev.name);
+      insDev.run(dev.mac, dev.name, kind, dev.ip, start, now, kind === 'server' || kind === 'homeassistant' ? 1 : 0);
       ids.set(dev.mac, (db.prepare('SELECT id FROM devices WHERE mac = ?').get(dev.mac) as { id: number }).id);
     }
     const blockedRe = /tracking|ad\.|ads\.|lgsmartad|measurement|doubleclick|googletagmanager|firebaselogging|ngfts|samsungads|sentry/;

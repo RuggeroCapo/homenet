@@ -25,7 +25,7 @@ export interface Settings {
     telegram: { enabled: boolean; botToken: string; chatId: string };
     ha: { enabled: boolean; service: string };
     /** which event groups are pushed */
-    types: { internet: boolean; geo: boolean; newDevice: boolean; deviceOffline: boolean; watchdog: boolean };
+    types: { internet: boolean; geo: boolean; newDevice: boolean; deviceOffline: boolean; watchdog: boolean; access: boolean };
   };
   watchlist: { countries: string[]; asnKeywords: string[]; minBytes: number };
 }
@@ -55,7 +55,7 @@ function defaults(): Settings {
       ntfy: { enabled: false, url: 'https://ntfy.sh/homenet-change-me', token: '' },
       telegram: { enabled: false, botToken: '', chatId: '' },
       ha: { enabled: false, service: 'mobile_app_iphone' },
-      types: { internet: true, geo: true, newDevice: true, deviceOffline: true, watchdog: true },
+      types: { internet: true, geo: true, newDevice: true, deviceOffline: true, watchdog: true, access: true },
     },
     watchlist: {
       countries: ['CN', 'RU', 'KP', 'IR', 'HK'],

@@ -2,7 +2,7 @@
 import { db, kvGet, kvSet, localDay } from '../db.js';
 import { isLan, markActive, setLanSubnets, setWifi, upsertHost } from '../devices.js';
 import { addEvent } from '../events.js';
-import { parseInfo, parseModem, parseSms, parseWifi, type RouterApi, type WanStatus } from '../router.js';
+import { parseInfo, parseModem, parseSms, parseWifi, type AccessArgs, type RouterApi, type WanStatus } from '../router.js';
 import { collectorError, collectorOk, state } from '../state.js';
 import { ingestFlows } from './flows.js';
 
@@ -150,6 +150,10 @@ export class RouterCollector {
 
   private async sms() {
     state.sms = parseSms(await this.api.sms()).slice(-30).reverse();
+  }
+
+  access(args: AccessArgs) {
+    return this.api.access(args);
   }
 
   async action(name: 'reboot' | 'restart_wan' | 'modem_reset') {

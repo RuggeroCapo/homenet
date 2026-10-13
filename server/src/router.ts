@@ -11,6 +11,9 @@ export type RawWifi = Record<string, { info: any; assoc: { results?: any[] } | n
 export interface RawConntrack { seed?: boolean; flows: FlowRow[]; truncated?: number; error?: string }
 export interface RawSms { msg?: Array<Record<string, unknown>> }
 export type RouterAction = 'reboot' | 'restart_wan' | 'modem_reset';
+/** Desired internet-access state, sent whole on every call (see do_access in the router plugin). */
+export interface AccessArgs { block: string; allow: string; lock: string; wan: string; kill: string }
+export interface AccessResult { ok: boolean; error?: string; conntrack?: boolean; killed?: number }
 
 export interface RouterApi {
   info(): Promise<RawInfo>;
@@ -20,6 +23,7 @@ export interface RouterApi {
   modem(): Promise<any>;
   sms(): Promise<RawSms>;
   action(name: RouterAction, ifaces: string[]): Promise<void>;
+  access(args: AccessArgs): Promise<AccessResult>;
 }
 
 const NULL_SESSION = '00000000000000000000000000000000';
@@ -105,6 +109,11 @@ export class UbusClient implements RouterApi {
   async action(name: RouterAction, ifaces: string[]) {
     await this.call('homenet', 'action', { name, ifaces: ifaces.join(' ') });
   }
+  async access(args: AccessArgs): Promise<AccessResult> {
+    const res = (await this.call('homenet', 'access', { ...args }, 20_000)) as AccessResult;
+    if (!res.ok) throw new Error(`router: ${res.error ?? 'access rules not applied'}`);
+    return res;
+  }
 }
 
 // ---------- parsers ----------
@@ -118,6 +127,7 @@ export interface ParsedInfo {
   lan6: Array<[string, number]>;
   wanCounters: { rx: number; tx: number };
   offload: boolean; acct: boolean;
+  plugin: number;
 }
 
 const LTE_PROTOS = new Set(['qmi', 'ncm', 'mbim', '3g', 'modemmanager', 'directip', 'uqmi', 'wwan']);
@@ -170,6 +180,7 @@ export function parseInfo(raw: RawInfo): ParsedInfo {
     wanCounters: { rx, tx },
     offload: raw.offload === '1',
     acct: raw.acct === undefined || raw.acct === '1',
+    plugin: raw.plugin ?? 1,
   };
 }
 

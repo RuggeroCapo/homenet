@@ -14,6 +14,7 @@ const GROUP: Record<string, Group> = {
   new_device: 'newDevice',
   device_offline: 'deviceOffline', device_online: 'deviceOffline',
   action: 'watchdog', watchdog: 'watchdog', router_boot: 'watchdog',
+  access: 'access',
 };
 
 const queue: Array<Notice & { tries: number }> = [];

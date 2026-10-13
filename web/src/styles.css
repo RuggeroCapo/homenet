@@ -623,3 +623,5 @@ a.banner:hover { filter: brightness(1.12); }
   .tbl.cards td[data-label]::before { content: attr(data-label); display: block; margin-bottom: 3px; font-size: 10.5px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-3); }
   .tbl.cards td.no-sm { display: none; }
 }
+
+.divider { height: 1px; background: var(--hairline); margin: 2px 0; }

@@ -1,8 +1,18 @@
+export type CapPeriod = 'day' | 'week' | 'cycle';
+export type BlockReason = 'manual' | 'schedule' | 'cap' | 'lockdown';
+export interface Schedule { enabled: boolean; days: number[]; from: string; to: string }
+export interface Access {
+  blocked: boolean; reasons: BlockReason[]; until: number | null;
+  pauseUntil: number | null; overrideUntil: number | null; essential: boolean; controllable: boolean;
+  cap: { bytes: number; period: CapPeriod; used: number; start: number; end: number } | null;
+  schedule: Schedule | null; scheduleActive: boolean;
+}
 export interface Device {
   id: number; name: string; hostname: string | null; alias: string | null; kind: string;
   ip: string | null; mac: string | null; online: boolean; lastSeen: number; firstSeen: number;
   notifyOffline: boolean; wifiSignal: number | null; wifiIface: string | null;
   rateUp: number; rateDown: number;
+  access: Access;
 }
 export interface DataUsage { kind: 'lte' | 'all'; start: number; end: number; rx: number; tx: number; used: number; quota: number | null; projected: number; daily: Array<{ day: string; rx: number; tx: number }> }
 export interface DeviceWithTraffic extends Device {
@@ -44,6 +54,12 @@ export interface Status {
   configured: { router: boolean; adguard: boolean };
   collectors: Record<string, { ok: boolean; lastOk?: number; lastError?: string; lastErrorAt?: number }>;
   routerOk: boolean; conntrackTruncated: number; offload: boolean; acct: boolean;
+  access: AccessStatus;
+}
+
+export interface AccessStatus {
+  lockdown: { until: number; allow: number[]; started: number; names: string[] } | null;
+  blocked: number; pluginOk: boolean | null; conntrack: boolean | null; error: string | null;
 }
 
 export interface Destination { ip: string; up: number; down: number; conns: number; cc: string | null; asn: number | null; org: string | null; ports: string | null; domain: string | null; base: string | null; flagged: boolean }

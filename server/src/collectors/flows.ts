@@ -1,5 +1,5 @@
 // Turns conntrack byte deltas into hourly per-device/per-destination rows and 5-minute device counters.
-import { baseIdOf, dayBucket, db, kvGet, kvSet } from '../db.js';
+import { baseIdOf, dayBucket, db, kvGet, kvSet, localDay } from '../db.js';
 import { deviceForIp, displayName, getDevice, isLan, markActive, resolveDevice } from '../devices.js';
 import { addEventOnce, countryName, fmtBytes } from '../events.js';
 import { lookup } from '../geo.js';
@@ -101,6 +101,8 @@ const upFlow = db.prepare(`INSERT INTO flows_1h (ts, device_id, ip, proto, port,
   conns = conns + excluded.conns, domain_id = COALESCE(excluded.domain_id, domain_id)`);
 const upTraffic = db.prepare(`INSERT INTO traffic_5m (ts, device_id, up, down) VALUES (@ts, @dev, @up, @down)
   ON CONFLICT(ts, device_id) DO UPDATE SET up = up + excluded.up, down = down + excluded.down`);
+const upDaily = db.prepare(`INSERT INTO device_daily (day, device_id, up, down) VALUES (?, ?, ?, ?)
+  ON CONFLICT(day, device_id) DO UPDATE SET up = up + excluded.up, down = down + excluded.down`);
 const geoSql = (t: string) => db.prepare(`INSERT INTO ${t} (ts, device_id, cc, asn, up, down, conns) VALUES (?, ?, ?, ?, ?, ?, ?)
   ON CONFLICT(ts, device_id, cc, asn) DO UPDATE SET up = up + excluded.up, down = down + excluded.down, conns = conns + excluded.conns`);
 const baseSql = (t: string) => db.prepare(`INSERT INTO ${t} (ts, device_id, base_id, up, down) VALUES (?, ?, ?, ?, ?)
@@ -146,7 +148,7 @@ export function flushFlows() {
   for (const t of tBatch) t.dev = resolveDevice(t.dev);
   db.transaction(() => {
     for (const f of batch) upFlow.run(f);
-    for (const t of tBatch) upTraffic.run(t);
+    for (const t of tBatch) { upTraffic.run(t); upDaily.run(localDay(t.ts), t.dev, t.up, t.down); }
     const geo = new Map<string, [number, number, string, number, number, number, number]>();
     const base = new Map<string, [number, number, number, number, number]>();
     for (const f of batch) {

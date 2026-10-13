@@ -26,6 +26,10 @@ Everything below is either outward-facing (needs your accounts), needs your real
 - [ ] **Mac mini 2011 performance.** Benchmarked on a modern CPU (30–450 ms per page in a worst-case 15-day DB); on the Mac mini expect 2–3× slower. If anything feels slow, run `npm run bench` there and tell me.
 - [ ] **Notifications / Home Assistant.** ntfy was tested against a local fake server. Telegram, HA notify and HA power-cycle use their documented APIs but were not tested against real accounts. Use the *Invia notifica di prova* button.
 
+- [ ] **Access control on your router.** Re-run `install.sh` to get plugin v2 (self-test line `access ...... ok`). Then pause one device and check it really loses internet, especially with flow offloading on.
+  - Phones with *private Wi-Fi address* set to "rotating" (Android 15 / iOS 18 option) would escape a pause; the default "fixed per network" is fine.
+  - In "only these devices" mode, check that Umbrel is marked *essential* (it is when its hostname contains "umbrel").
+
 ## 3. Decisions I made for you (easy to change)
 
 - UI language: **Italian**, to match your mockup (code/comments in English).
@@ -36,6 +40,7 @@ Everything below is either outward-facing (needs your accounts), needs your real
 - Umbrel app proxy authentication protects the UI. HomeNet has no login of its own.
 
 ## Verified tonight
+- Access control: plugin loads its nftables table on OpenWrt 23.05.5 and 24.10.4 containers; in a namespace lab (bridge LAN, Ethernet WAN, fw4-like stateful chain) pause drops traffic and deletes the device's conntrack entries, "only these devices" keeps the allowed device's downloads working, timed entries expire on their own, and the table survives an fw4 table reload.
 
 - OpenWrt 23.05.5 + 24.10.4 containers: installer, every plugin method over HTTP and HTTPS (self-signed + redirect), ACL denies other ubus calls, wrong password error, `restart_wan` action reaches `ifup`, uninstall.
 - The full HomeNet container running against the OpenWrt container: all router collectors green.

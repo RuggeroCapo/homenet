@@ -3,6 +3,7 @@ import Fastify from 'fastify';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { AccessController } from './access.js';
 import { AdGuardClient, type AdGuardApi } from './adguard.js';
 import { registerApi } from './api.js';
 import { DnsCollector, flushDns } from './collectors/dns.js';
@@ -74,8 +75,11 @@ async function main() {
   // refresh monthly DBs weekly; retry hourly while they are missing (e.g. no internet at boot)
   setInterval(() => { if (!geoStatus().loaded || !geoStatus().asn || new Date().getHours() === 4) void initGeo(); }, 3600_000);
 
+  const access = new AccessController(() => routerCollector);
+  access.start();
+
   const app = Fastify({ logger: false, bodyLimit: 256 * 1024 });
-  registerApi(app, () => routerCollector);
+  registerApi(app, () => routerCollector, access);
 
   const here = path.dirname(fileURLToPath(import.meta.url));
   const webRoot = [process.env.WEB_ROOT, path.join(here, '../public'), path.join(here, '../../web/dist')].find((p) => p && fs.existsSync(p));

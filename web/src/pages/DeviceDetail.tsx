@@ -1,6 +1,7 @@
-import { Activity, ArrowDown, ArrowUp, Bell, ChevronLeft, Clock, Download, Globe, MapPin, Pencil, ShieldAlert, Trash2, Waypoints } from 'lucide-react';
+import { Activity, ArrowDown, ArrowUp, Ban, Bell, ChevronLeft, Clock, Download, Globe, MapPin, Pencil, ShieldAlert, Trash2, Waypoints } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { type PageProps } from '../App';
+import { ACCESS_CHANGED, AccessCard, accessLabel, LockdownDialog } from '../components/Access';
 import { TimeChart, UpDownBar } from '../components/charts';
 import { Card, CardHead, DeviceIcon, Empty, EventList, KINDS, RangePicker, Seg, Skeleton, Stat, Stats, Status, useUi } from '../components/ui';
 import { api, countryName, flag, fmtAgo, fmtBytes, fmtDate, fmtNum, seriesColor, splitUnit, usePoll } from '../lib';
@@ -25,6 +26,12 @@ export function DeviceDetail({ id, range, setRange }: PageProps & { id: number }
   const [editing, setEditing] = useState(false);
   const [alias, setAlias] = useState('');
   const [tab, setTab] = useState<'dest' | 'dns'>('dest');
+  const [lockdown, setLockdown] = useState(false);
+  useEffect(() => {
+    const on = () => void reload();
+    window.addEventListener(ACCESS_CHANGED, on);
+    return () => window.removeEventListener(ACCESS_CHANGED, on);
+  }, [reload]);
   useEffect(() => { if (data) setAlias(data.device.alias ?? ''); }, [data?.device.alias]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const patch = async (body: Record<string, unknown>) => {
@@ -61,6 +68,7 @@ export function DeviceDetail({ id, range, setRange }: PageProps & { id: number }
             )}
             <div className="hstack wrap" style={{ gap: '4px 14px' }}>
               {d.online ? <Status tone="ok">Online</Status> : <Status tone="off">Visto {fmtAgo(d.lastSeen)}</Status>}
+              {d.access.blocked && <span className="pill err" title={accessLabel(d.access)}><Ban />Senza Internet</span>}
               {d.wifiSignal !== null && <Status tone={signalTone(d.wifiSignal)}>Wi-Fi {d.wifiSignal} dBm</Status>}
               <span className="meta num">{[d.ip, d.mac, d.hostname && d.hostname !== d.name ? d.hostname : null].filter(Boolean).join(' · ')}</span>
               <span className="meta">Visto la prima volta {fmtDate(d.firstSeen)}</span>
@@ -99,6 +107,7 @@ export function DeviceDetail({ id, range, setRange }: PageProps & { id: number }
               ]} />
           </Card>
           <div className="stack">
+            <AccessCard device={d} onChange={reload} onLockdown={() => setLockdown(true)} />
             <Card>
               <CardHead icon={MapPin} title="Dove va il traffico" href={`#/map?device=${d.id}`} />
               {data.countries.length === 0 ? <Empty>Nessun traffico registrato</Empty> : (
@@ -186,6 +195,7 @@ export function DeviceDetail({ id, range, setRange }: PageProps & { id: number }
           <EventList events={data.events} />
         </Card>
       </div>
+      {lockdown && <LockdownDialog preselect={[d.id]} onClose={(changed) => { setLockdown(false); if (changed) void reload(); }} />}
     </>
   );
 }

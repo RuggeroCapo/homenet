@@ -4,7 +4,7 @@
 # it only reads kernel/ubus state and emits compact JSON; all parsing and
 # aggregation happens in the HomeNet app on Umbrel.
 
-VERSION=1
+VERSION=2
 CONF=/etc/homenet.conf
 STATE=/tmp/homenet
 
@@ -209,9 +209,81 @@ do_action() {
 	echo '{"ok":true}'
 }
 
+# Internet access control. HomeNet sends the complete desired state on every call;
+# it is written atomically into its own nftables table "inet homenet", which fw4
+# reloads do not touch. Rules live in RAM only, so a router reboot removes them.
+#   block: "mac[=seconds] ..."  no internet for these devices (no seconds = until removed)
+#   allow: "mac ..."            with lock > 0: only these devices reach the internet
+#   lock:  seconds              how long the allow-list mode lasts (0 = off)
+#   wan:   "dev ..."            WAN devices (inbound traffic there is never dropped)
+#   kill:  "mac ..."            drop these devices' open connections (needed with flow offloading)
+do_access() {
+	read -r input
+	if ! command -v nft >/dev/null; then echo '{"ok":false,"error":"nftables (fw4) required"}'; return; fi
+	field() { echo "$input" | jsonfilter -e "@.$1" 2>/dev/null; }
+	block=$(field block | tr 'A-F' 'a-f' | tr -cd '0-9a-f:= ')
+	allow=$(field allow | tr 'A-F' 'a-f' | tr -cd '0-9a-f: ')
+	kill=$(field kill | tr 'A-F' 'a-f' | tr -cd '0-9a-f: ')
+	lock=$(field lock | tr -cd '0-9')
+	wan=$(field wan | tr -cd 'a-zA-Z0-9_.@ -')
+	wan="$wan $({ ip -4 route show default; ip -6 route show default; } 2>/dev/null | awk '{ for (i = 1; i < NF; i++) if ($i == "dev") print $(i + 1) }')"
+	ismac() { echo "$1" | grep -qE '^([0-9a-f]{2}:){5}[0-9a-f]{2}$'; }
+
+	elems=""
+	for e in $block; do
+		mac=${e%%=*}; secs=""
+		[ "$mac" != "$e" ] && secs=${e#*=}
+		ismac "$mac" || continue
+		case "$secs" in ''|*[!0-9]*) secs="" ;; esac
+		elems="$elems${elems:+, }$mac${secs:+ timeout ${secs}s}"
+	done
+	allows=""
+	for mac in $allow; do ismac "$mac" && allows="$allows${allows:+, }$mac"; done
+	wans=""
+	for d in $(echo "$wan" | tr ' ' '\n' | sort -u); do wans="$wans${wans:+, }\"$d\""; done
+
+	[ -n "$elems" ] && elems="elements = { $elems }; "
+	[ -n "$allows" ] && allows="elements = { $allows }; "
+	[ -n "$wans" ] && wans="iifname != { $wans } "
+	{
+		echo 'add table inet homenet'
+		echo 'delete table inet homenet'
+		echo 'table inet homenet {'
+		echo "	set blocked { type ether_addr; flags timeout; $elems}"
+		echo "	set allow { type ether_addr; $allows}"
+		if [ "${lock:-0}" -gt 0 ]; then
+			echo "	set lock { typeof meta nfproto; flags timeout; elements = { ipv4 timeout ${lock}s, ipv6 timeout ${lock}s }; }"
+		else
+			echo '	set lock { typeof meta nfproto; flags timeout; }'
+		fi
+		echo '	chain forward {'
+		echo '		type filter hook forward priority -10; policy accept;'
+		echo '		ether saddr @blocked counter drop'
+		echo "		${wans}meta nfproto @lock ether saddr != @allow counter drop"
+		echo '	}'
+		echo '}'
+	} > "$STATE/access.nft"
+	if ! err=$(nft -f "$STATE/access.nft" 2>&1); then
+		printf '{"ok":false,"error":"%s"}\n' "$(echo "$err" | head -3 | json_str)"
+		return
+	fi
+
+	killed=0
+	if [ -n "$kill" ] && command -v conntrack >/dev/null; then
+		for mac in $kill; do
+			ismac "$mac" || continue
+			for ip in $({ ip neigh show; ip -6 neigh show; [ -f /tmp/dhcp.leases ] && awk '{ print $3, "lladdr", $2 }' /tmp/dhcp.leases; } 2>/dev/null | awk -v m="$mac" 'tolower($0) ~ m { print $1 }' | sort -u); do
+				case "$ip" in fe80:*) continue ;; esac
+				conntrack -D -s "$ip" >/dev/null 2>&1 && killed=$((killed + 1))
+			done
+		done
+	fi
+	printf '{"ok":true,"conntrack":%s,"killed":%d}\n' "$(command -v conntrack >/dev/null && echo true || echo false)" "$killed"
+}
+
 case "$1" in
 	list)
-		echo '{"info":{},"hosts":{},"wifi":{},"conntrack":{},"modem":{},"sms":{},"action":{"name":"str","ifaces":"str"}}'
+		echo '{"info":{},"hosts":{},"wifi":{},"conntrack":{},"modem":{},"sms":{},"action":{"name":"str","ifaces":"str"},"access":{"block":"str","allow":"str","lock":"str","wan":"str","kill":"str"}}'
 		;;
 	call)
 		case "$2" in
@@ -222,6 +294,7 @@ case "$1" in
 			modem) do_modem ;;
 			sms) do_sms ;;
 			action) do_action ;;
+			access) do_access ;;
 			*) echo '{"error":"unknown method"}' ;;
 		esac
 		;;

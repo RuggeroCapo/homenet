@@ -18,7 +18,7 @@ interface SettingsData {
     ntfy: { enabled: boolean; url: string; token: string; has_token?: boolean };
     telegram: { enabled: boolean; botToken: string; chatId: string; has_botToken?: boolean };
     ha: { enabled: boolean; service: string };
-    types: { internet: boolean; geo: boolean; newDevice: boolean; deviceOffline: boolean; watchdog: boolean };
+    types: { internet: boolean; geo: boolean; newDevice: boolean; deviceOffline: boolean; watchdog: boolean; access: boolean };
   };
   watchlist: { countries: string[]; asnKeywords: string[]; minBytes: number };
 }
@@ -177,7 +177,7 @@ export function Settings() {
             <div>
               <div className="field"><label>Cosa notificare</label></div>
               <div className="hstack wrap" style={{ gap: 8, marginTop: 8 }}>
-                {([['internet', 'Internet / WAN'], ['geo', 'Traffico in watchlist'], ['newDevice', 'Nuovi dispositivi'], ['deviceOffline', 'Dispositivi offline'], ['watchdog', 'Azioni e riavvii']] as const).map(([k, l]) => (
+                {([['internet', 'Internet / WAN'], ['geo', 'Traffico in watchlist'], ['newDevice', 'Nuovi dispositivi'], ['deviceOffline', 'Dispositivi offline'], ['watchdog', 'Azioni e riavvii'], ['access', 'Limiti dati e «solo alcuni»']] as const).map(([k, l]) => (
                   <button key={k} className={`btn sm ${s.notify.types[k] ? 'primary' : ''}`} aria-pressed={s.notify.types[k]} onClick={() => set('notify', { types: { ...s.notify.types, [k]: !s.notify.types[k] } })}>{l}</button>
                 ))}
               </div>

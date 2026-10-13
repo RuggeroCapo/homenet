@@ -99,6 +99,12 @@ CREATE TABLE IF NOT EXISTS wan_daily (
   PRIMARY KEY (day, iface)
 ) WITHOUT ROWID;
 
+-- bytes per device per local day (kept 400 days, used for per-device data caps)
+CREATE TABLE IF NOT EXISTS device_daily (
+  day TEXT NOT NULL, device_id INTEGER NOT NULL, up INTEGER NOT NULL, down INTEGER NOT NULL,
+  PRIMARY KEY (day, device_id)
+) WITHOUT ROWID;
+
 CREATE TABLE IF NOT EXISTS events (
   id INTEGER PRIMARY KEY,
   ts INTEGER NOT NULL,
@@ -110,6 +116,21 @@ CREATE TABLE IF NOT EXISTS events (
 );
 CREATE INDEX IF NOT EXISTS events_ts ON events(ts);
 `);
+
+// ---------- column migrations ----------
+function addColumn(table: string, column: string, ddl: string, onAdd?: string) {
+  const cols = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
+  if (cols.some((c) => c.name === column)) return;
+  db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${ddl}`);
+  if (onAdd) db.exec(onAdd);
+}
+// internet access control (see access.ts)
+addColumn('devices', 'pause_until', 'INTEGER');      // NULL = not paused, 0 = until resumed, else unix time
+addColumn('devices', 'override_until', 'INTEGER');   // manual resume: schedule and cap ignored until then
+addColumn('devices', 'essential', 'INTEGER NOT NULL DEFAULT 0', "UPDATE devices SET essential = 1 WHERE kind IN ('server', 'homeassistant')");
+addColumn('devices', 'cap_bytes', 'INTEGER');
+addColumn('devices', 'cap_period', 'TEXT');
+addColumn('devices', 'schedule', 'TEXT');
 
 /** Local-midnight bucket for a timestamp (uses the current UTC offset; set TZ for local days). */
 export const TZ_OFFSET = -new Date().getTimezoneOffset() * 60;
@@ -139,6 +160,10 @@ export function backfillRollups() {
   if (empty('geo_1d') && !empty('geo_1h')) {
     db.exec(`INSERT INTO geo_1d (ts, device_id, cc, asn, up, down, conns)
       SELECT ${day}, device_id, cc, asn, SUM(up), SUM(down), SUM(conns) FROM geo_1h GROUP BY 1, device_id, cc, asn`);
+  }
+  if (empty('device_daily') && !empty('traffic_5m')) {
+    db.exec(`INSERT INTO device_daily (day, device_id, up, down)
+      SELECT date(ts, 'unixepoch', 'localtime'), device_id, SUM(up), SUM(down) FROM traffic_5m GROUP BY 1, device_id`);
   }
   if (empty('base_1d') && !empty('base_1h')) {
     db.exec(`INSERT INTO base_1d (ts, device_id, base_id, queries, blocked, up, down)
@@ -198,6 +223,7 @@ export function prune(retentionDays: number) {
     db.prepare('DELETE FROM events WHERE ts < ?').run(cutoff);
     db.prepare('DELETE FROM ip_domain WHERE ts < ?').run(cutoff);
     db.prepare('DELETE FROM wan_daily WHERE day < ?').run(localDay(Date.now() / 1000 - 400 * 86400));
+    db.prepare('DELETE FROM device_daily WHERE day < ?').run(localDay(Date.now() / 1000 - 400 * 86400));
     db.prepare('DELETE FROM kv WHERE key LIKE \'seen:%\' AND ts < ?').run(cutoff);
     // pseudo devices (no MAC) that have not been seen for the whole window
     db.prepare("DELETE FROM devices WHERE mac LIKE 'ip:%' AND last_seen < ?").run(cutoff);

@@ -1,6 +1,7 @@
-import { ArrowDown, ArrowUp, Monitor, ShieldAlert, Wifi } from 'lucide-react';
+import { ArrowDown, ArrowUp, Ban, Monitor, ShieldAlert, Users, Wifi } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { PageHead, type PageProps } from '../App';
+import { accessLabel, LockdownDialog } from '../components/Access';
 import { Sparkline } from '../components/charts';
 import { Card, DeviceIcon, Empty, KINDS, RangePicker, Seg, Skeleton, Stat, Stats, Status } from '../components/ui';
 import { countryName, fmtAgo, fmtBps, fmtBytes, fmtNum, seriesColor, splitUnit, usePoll } from '../lib';
@@ -12,22 +13,26 @@ export function signalTone(s: number | null | undefined): 'ok' | 'warn' | 'err' 
 }
 
 export function Devices({ range, setRange }: PageProps) {
-  const { data } = usePoll<DeviceWithTraffic[]>(`/api/devices?range=${range}`, 30_000);
+  const { data, reload } = usePoll<DeviceWithTraffic[]>(`/api/devices?range=${range}`, 30_000);
   const [q, setQ] = useState('');
-  const [filter, setFilter] = useState<'all' | 'online' | 'flagged'>('all');
+  const [filter, setFilter] = useState<'all' | 'online' | 'flagged' | 'blocked'>('all');
+  const [lockdown, setLockdown] = useState(false);
   const list = useMemo(() => (data ?? []).filter((d) => {
     if (filter === 'online' && !d.online) return false;
     if (filter === 'flagged' && !d.flagged) return false;
+    if (filter === 'blocked' && !d.access.blocked) return false;
     const t = q.trim().toLowerCase();
     return !t || [d.name, d.ip, d.mac, d.hostname].some((x) => x?.toLowerCase().includes(t));
   }), [data, q, filter]);
   const flaggedCount = (data ?? []).filter((d) => d.flagged).length;
+  const blockedCount = (data ?? []).filter((d) => d.access.blocked).length;
   const [down, downU] = splitUnit(fmtBytes((data ?? []).reduce((a, d) => a + d.down, 0)));
   const [up, upU] = splitUnit(fmtBytes((data ?? []).reduce((a, d) => a + d.up, 0)));
 
   return (
     <>
       <PageHead title="Dispositivi" subtitle="Tutti i dispositivi visti sulla rete, con traffico e destinazioni.">
+        <button className="btn" onClick={() => setLockdown(true)}><Users />Internet solo ad alcuni…</button>
         <RangePicker value={range} onChange={setRange} />
       </PageHead>
       {data && (
@@ -40,7 +45,7 @@ export function Devices({ range, setRange }: PageProps) {
       )}
       <Card>
         <div className="toolbar">
-          <Seg label="Filtro" value={filter} onChange={setFilter} options={[['all', `Tutti${data ? ` (${data.length})` : ''}`], ['online', 'Online'], ['flagged', `In watchlist${flaggedCount ? ` (${flaggedCount})` : ''}`]]} />
+          <Seg label="Filtro" value={filter} onChange={setFilter} options={[['all', `Tutti${data ? ` (${data.length})` : ''}`], ['online', 'Online'], ['flagged', `In watchlist${flaggedCount ? ` (${flaggedCount})` : ''}`], ...(blockedCount ? [['blocked', `Senza Internet (${blockedCount})`] as ['blocked', string]] : [])]} />
           <input className="input pill" type="search" placeholder="Filtra per nome, IP o MAC" aria-label="Filtra dispositivi" value={q} onChange={(e) => setQ(e.target.value)} style={{ width: 280 }} />
         </div>
         {!data ? <Skeleton h={400} /> : list.length === 0 ? <Empty icon={Monitor}>Nessun dispositivo</Empty> : (
@@ -64,7 +69,10 @@ export function Devices({ range, setRange }: PageProps) {
                         </div>
                       </div>
                     </td>
-                    <td data-label="Stato">{d.online ? <Status tone="ok">Online</Status> : <Status tone="off">{fmtAgo(d.lastSeen)}</Status>}</td>
+                    <td data-label="Stato">
+                      {d.online ? <Status tone="ok">Online</Status> : <Status tone="off">{fmtAgo(d.lastSeen)}</Status>}
+                      {d.access.blocked && <div style={{ marginTop: 4 }}><span className="pill err" title={accessLabel(d.access)}><Ban />Senza Internet</span></div>}
+                    </td>
                     <td data-label="Wi-Fi">{d.wifiSignal !== null ? <Status tone={signalTone(d.wifiSignal)}><Wifi size={14} /> {d.wifiSignal} dBm</Status> : <span className="faint">{d.online ? 'Cavo' : '—'}</span>}</td>
                     <td data-label="Ora" className="r num meta" style={{ whiteSpace: 'nowrap' }}>{d.rateDown + d.rateUp > 8000 ? <>↓ {fmtBps(d.rateDown)}<br />↑ {fmtBps(d.rateUp)}</> : '—'}</td>
                     <td data-label="Download" className="r num">{fmtBytes(d.down)}</td>
@@ -83,6 +91,7 @@ export function Devices({ range, setRange }: PageProps) {
           </div>
         )}
       </Card>
+      {lockdown && <LockdownDialog preselect={[]} onClose={(changed) => { setLockdown(false); if (changed) void reload(); }} />}
       <p className="meta" style={{ marginTop: 16 }}>Tipi riconosciuti automaticamente dal nome: {Object.values(KINDS).map((k) => k.label).slice(0, 8).join(', ')}… Puoi correggerli nella pagina del dispositivo.</p>
     </>
   );
