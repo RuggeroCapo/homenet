@@ -7,6 +7,9 @@ set -e
 PASS="$1"
 [ -n "$PASS" ] || { echo "usage: sh install.sh <password-for-the-homenet-rpc-user>"; exit 1; }
 DIR=$(cd "$(dirname "$0")" && pwd)
+# the plugin ships as homenet.rpcd: a file named "homenet" would collide with the
+# plugin's own state folder /tmp/homenet once it has run
+[ -f "$DIR/homenet.rpcd" ] || { echo "homenet.rpcd not found in $DIR: copy all files of router/ there first"; exit 1; }
 
 if command -v apk >/dev/null 2>&1; then UPD="apk update"; ADD="apk add"; else UPD="opkg update"; ADD="opkg install"; fi
 need=""
@@ -22,7 +25,7 @@ if [ -n "$need" ]; then
 fi
 
 mkdir -p /usr/libexec/rpcd /usr/share/rpcd/acl.d /etc/sysctl.d
-cp "$DIR/homenet" /usr/libexec/rpcd/homenet
+cp "$DIR/homenet.rpcd" /usr/libexec/rpcd/homenet
 chmod 0755 /usr/libexec/rpcd/homenet
 cp "$DIR/homenet.acl.json" /usr/share/rpcd/acl.d/homenet.json
 [ -f /etc/homenet.conf ] || cp "$DIR/homenet.conf" /etc/homenet.conf
