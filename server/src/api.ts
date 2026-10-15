@@ -5,6 +5,7 @@ import { categoryOf } from './categories.js';
 import type { RouterCollector } from './collectors/router.js';
 import { runAction } from './collectors/watchdog.js';
 import { dayBucket, db, dbSizeBytes, localDay } from './db.js';
+import { destinationDetail, destinationGroups, type GroupBy } from './destinations.js';
 import { DEVICE_TABLES, displayName, getDevice, type DeviceRow } from './devices.js';
 import { geoStatus } from './geo.js';
 import { UbusClient } from './router.js';
@@ -378,6 +379,35 @@ export function registerApi(app: FastifyInstance, getRouter: () => RouterCollect
       domains: domains.map((x) => ({ ...x, category: categoryOf(x.base) })),
       events: recentEvents(20, undefined, id),
     };
+  });
+
+  // destinations of a device, optionally restricted to a window inside the range (from/to, unix seconds)
+  const destQuery = (req: { params: unknown; query: unknown }) => {
+    const id = Number((req.params as { id: string }).id);
+    const q = req.query as { range?: string; from?: string; to?: string; by?: string; key?: string };
+    const r = range(q);
+    const wFrom = Number(q.from), wTo = Number(q.to);
+    const windowed = Number.isInteger(wFrom) && Number.isInteger(wTo) && wFrom < wTo;
+    const s = getSettings();
+    return {
+      id, key: q.key, range: [r.from, r.to + 1] as [number, number],
+      from: windowed ? Math.max(wFrom, hourStart(r.from)) : r.from, to: windowed ? Math.min(wTo, r.to + 1) : r.to + 1,
+      by: (q.by === 'ip' ? 'ip' : 'service') as GroupBy,
+      watch: { countries: s.watchlist.countries, asns: new Set(watchAsns(s)) },
+    };
+  };
+
+  app.get('/api/devices/:id/destinations', async (req, reply) => {
+    const q = destQuery(req);
+    if (!getDevice(q.id)) return reply.code(404).send({ error: 'not found' });
+    return { from: q.from, to: q.to, groups: destinationGroups(q.id, q.from, q.to, q.by, q.watch) };
+  });
+
+  app.get('/api/devices/:id/destinations/detail', async (req, reply) => {
+    const q = destQuery(req);
+    if (!getDevice(q.id) || !q.key) return reply.code(404).send({ error: 'not found' });
+    const detail = destinationDetail(q.id, q.from, q.to, q.range, q.key, q.by, q.watch, new Map(allDevices().map((d) => [d.id, d])));
+    return detail ?? reply.code(404).send({ error: 'not found' });
   });
 
   app.patch('/api/devices/:id', async (req, reply) => {

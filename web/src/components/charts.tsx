@@ -54,13 +54,17 @@ export interface Series { key: string; label: string; color: string; values: Arr
 /**
  * Time chart with one y-axis, recessive grid, crosshair + tooltip on hover.
  * All series must share the same unit (no dual axes).
+ * With `onSelect`, a click picks one bucket and a drag picks a span; points are bucket ends, so
+ * the bucket of point i is [times[i] - step, times[i]). `selection` is drawn as a band (time values).
  */
-export function TimeChart({ times, series, height = 220, format, yMin, yMax, invert, axisFormat, showAxis = true, hideZeroBase }: {
+export function TimeChart({ times, series, height = 220, format, yMin, yMax, invert, axisFormat, showAxis = true, hideZeroBase, selection, onSelect }: {
   times: number[]; series: Series[]; height?: number; format: (v: number) => string; axisFormat?: (v: number) => string;
   yMin?: number; yMax?: number; invert?: boolean; showAxis?: boolean; hideZeroBase?: boolean;
+  selection?: [number, number] | null; onSelect?: (from: number, to: number) => void;
 }) {
   const [ref, w] = useWidth<HTMLDivElement>();
   const [hover, setHover] = useState<number | null>(null);
+  const [drag, setDrag] = useState<[number, number] | null>(null);
   const id = useId().replace(/:/g, '');
   const padL = showAxis ? 52 : 0, padR = 8, padT = 10, padB = showAxis ? 24 : 4;
   const iw = Math.max(1, w - padL - padR), ih = height - padT - padB;
@@ -111,19 +115,42 @@ export function TimeChart({ times, series, height = 220, format, yMin, yMax, inv
     return out;
   }, [times, iw]);
 
-  const onMove = (e: React.MouseEvent) => {
+  const indexAt = (e: React.PointerEvent) => {
     const r = (e.currentTarget as SVGElement).getBoundingClientRect();
-    const px = e.clientX - r.left - padL;
-    const i = Math.round((px / iw) * (times.length - 1));
-    setHover(i >= 0 && i < times.length ? i : null);
+    return Math.round(((e.clientX - r.left - padL) / iw) * (times.length - 1));
   };
+  const clampIdx = (i: number) => Math.max(0, Math.min(times.length - 1, i));
+  const onMove = (e: React.PointerEvent) => {
+    const i = indexAt(e);
+    setHover(i >= 0 && i < times.length ? i : null);
+    if (drag) setDrag([drag[0], clampIdx(i)]);
+  };
+  const step = times.length > 1 ? times[1] - times[0] : 0;
+  const onDown = (e: React.PointerEvent) => {
+    if (!onSelect || e.button !== 0) return;
+    const i = indexAt(e);
+    if (i < 0 || i >= times.length) return;
+    (e.currentTarget as SVGElement).setPointerCapture(e.pointerId);
+    setDrag([i, i]);
+  };
+  const onUp = (e: React.PointerEvent) => {
+    if (!drag || !onSelect) return;
+    // the end comes from this event: the last pointermove may not have been rendered yet
+    const end = clampIdx(indexAt(e));
+    const [a, b] = drag[0] <= end ? [drag[0], end] : [end, drag[0]];
+    setDrag(null);
+    onSelect(times[a] - step, times[b]);
+  };
+  const band = drag ? [times[Math.min(...drag)] - step, times[Math.max(...drag)]] : selection;
+  const xt = (t: number) => padL + Math.max(0, Math.min(1, times.length > 1 ? (t - times[0]) / (times[times.length - 1] - times[0]) : 0)) * iw;
 
   const af = axisFormat ?? format;
   return (
     <div ref={ref} className="chart" style={{ height }}>
       {w > 0 && (
-        <svg width={w} height={height} onMouseMove={onMove} onMouseLeave={() => setHover(null)} role="img"
-          aria-label={series.map((s) => s.label).join(', ')}>
+        <svg width={w} height={height} onPointerMove={onMove} onPointerLeave={() => setHover(null)} onPointerDown={onDown} onPointerUp={onUp}
+          onPointerCancel={() => setDrag(null)} role="img" aria-label={series.map((s) => s.label).join(', ')}
+          style={onSelect ? { cursor: 'crosshair', touchAction: 'pan-y', userSelect: 'none' } : undefined}>
           <defs>
             {series.map((s) => (
               <linearGradient key={s.key} id={`g${id}${s.key}`} x1="0" y1="0" x2="0" y2="1">
@@ -138,6 +165,9 @@ export function TimeChart({ times, series, height = 220, format, yMin, yMax, inv
               <text x={padL - 10} y={y(t) + 4} textAnchor="end">{af(t)}</text>
             </g>
           ))}
+          {band && band[1] > band[0] && (
+            <rect className="chart-sel" x={xt(band[0])} y={padT} width={Math.max(3, xt(band[1]) - xt(band[0]))} height={ih} rx={6} />
+          )}
           {showAxis && xTicks.map((t, k) => (
             <text key={k} className="axis" x={x(t.i)} y={height - 4} textAnchor={k === 0 ? 'start' : k === xTicks.length - 1 ? 'end' : 'middle'} style={{ fill: 'var(--text-3)', fontSize: 11 }}>{t.label}</text>
           ))}

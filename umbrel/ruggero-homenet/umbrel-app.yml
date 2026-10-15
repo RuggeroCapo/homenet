@@ -4,7 +4,7 @@ name: HomeNet
 tagline: Router watchdog, traffic analytics and where your devices send data
 icon: https://raw.githubusercontent.com/RuggeroCapo/homenet/main/umbrel/ruggero-homenet/icon.svg
 category: networking
-version: "0.3.1"
+version: "0.4.0"
 port: 8790
 description: >-
   HomeNet monitors your OpenWrt router (LTE / Wi-Fi signal, WAN status, latency) and can
@@ -25,7 +25,7 @@ repo: https://github.com/RuggeroCapo/homenet
 support: https://github.com/RuggeroCapo/homenet/issues
 gallery: []
 releaseNotes: >-
-  Fixes inflated per-device traffic: a connection briefly missing from the router listing was counted again from its start. Update the router plugin (copy homenet.rpcd to /usr/libexec/rpcd/homenet) to apply the fix.
+  Device destinations are easier to read: grouped by service (domain or network owner), each row expands to show when the traffic happened, ports, addresses, domain names and other devices using the same service. Click or drag on the traffic chart to see the destinations of that moment.
 dependencies:
   - adguard-home
 widgets:

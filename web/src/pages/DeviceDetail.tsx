@@ -1,9 +1,10 @@
-import { Activity, ArrowDown, ArrowUp, Ban, Bell, ChevronLeft, Clock, Download, Globe, MapPin, Pencil, ShieldAlert, Trash2, Waypoints } from 'lucide-react';
+import { Activity, ArrowDown, ArrowUp, Ban, Bell, ChevronLeft, Clock, Globe, MapPin, Pencil, ShieldAlert, Trash2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { type PageProps } from '../App';
 import { ACCESS_CHANGED, AccessCard, accessLabel, LockdownDialog } from '../components/Access';
 import { TimeChart, UpDownBar } from '../components/charts';
-import { Card, CardHead, DeviceIcon, Empty, EventList, KINDS, RangePicker, Seg, Skeleton, Stat, Stats, Status, useUi } from '../components/ui';
+import { DestinationsCard, WindowChip } from '../components/Destinations';
+import { Card, CardHead, DeviceIcon, Empty, EventList, KINDS, RangePicker, Skeleton, Stat, Stats, Status, useUi } from '../components/ui';
 import { api, countryName, flag, fmtAgo, fmtBytes, fmtDate, fmtNum, seriesColor, splitUnit, usePoll } from '../lib';
 import type { Destination, Device, EventRow } from '../types';
 import { signalTone } from './Devices';
@@ -18,14 +19,14 @@ interface Detail {
   events: EventRow[];
 }
 
-const PROTO_PORT: Record<string, string> = { '443': 'HTTPS', '80': 'HTTP', '53': 'DNS', '853': 'DoT', '123': 'NTP', '1883': 'MQTT', '8883': 'MQTT/TLS', '554': 'RTSP', '3478': 'STUN', '5228': 'Google Push', '5223': 'Apple Push' };
-
 export function DeviceDetail({ id, range, setRange }: PageProps & { id: number }) {
   const { data, reload } = usePoll<Detail>(`/api/devices/${id}?range=${range}`, 30_000);
   const { confirm, toast } = useUi();
   const [editing, setEditing] = useState(false);
   const [alias, setAlias] = useState('');
-  const [tab, setTab] = useState<'dest' | 'dns'>('dest');
+  // hour-aligned window picked on the chart; destinations are stored per hour
+  const [win, setWin] = useState<[number, number] | null>(null);
+  useEffect(() => setWin(null), [range, id]);
   const [lockdown, setLockdown] = useState(false);
   useEffect(() => {
     const on = () => void reload();
@@ -43,7 +44,6 @@ export function DeviceDetail({ id, range, setRange }: PageProps & { id: number }
   const color = seriesColor(d.id);
   const maxCountry = Math.max(1, ...data.countries.map((c) => c.up + c.down));
   const flagged = data.destinations.filter((x) => x.flagged);
-  const maxDest = Math.max(1, ...data.destinations.map((x) => x.up + x.down));
   const [down, downU] = splitUnit(fmtBytes(data.totals.down));
   const [up, upU] = splitUnit(fmtBytes(data.totals.up));
 
@@ -97,10 +97,13 @@ export function DeviceDetail({ id, range, setRange }: PageProps & { id: number }
         )}
         <div className="grid g-wide">
           <Card>
-            <CardHead icon={Activity} title="Traffico nel tempo" sub="Byte per intervallo">
-              <div className="legend"><span><i style={{ background: 'var(--down)' }} />Download</span><span><i style={{ background: 'var(--up)' }} />Upload</span></div>
+            <CardHead icon={Activity} title="Traffico nel tempo" sub="Clicca o trascina sul grafico per vedere le destinazioni di quel momento">
+              {win ? <WindowChip win={win} onClear={() => setWin(null)} /> : (
+                <div className="legend"><span><i style={{ background: 'var(--down)' }} />Download</span><span><i style={{ background: 'var(--up)' }} />Upload</span></div>
+              )}
             </CardHead>
-            <TimeChart height={220} times={data.series.map((p) => p[0])} format={(v) => fmtBytes(v)}
+            <TimeChart height={220} times={data.series.map((p) => p[0])} format={(v) => fmtBytes(v)} selection={win}
+              onSelect={(a, b) => setWin([a - (a % 3600), Math.ceil(b / 3600) * 3600])}
               series={[
                 { key: 'down', label: 'Download', color: 'var(--down)', values: data.series.map((p) => p[1]), area: true },
                 { key: 'up', label: 'Upload', color: 'var(--up)', values: data.series.map((p) => p[2]), area: true },
@@ -139,56 +142,7 @@ export function DeviceDetail({ id, range, setRange }: PageProps & { id: number }
           </div>
         </div>
 
-        <Card>
-          <CardHead icon={tab === 'dest' ? Waypoints : Globe} title={tab === 'dest' ? 'Destinazioni' : 'Domini richiesti (DNS)'}
-            sub={tab === 'dest' ? 'Indirizzi IP contattati, con paese, rete proprietaria e dominio risolto' : 'Query DNS registrate da AdGuard Home'}>
-            <Seg value={tab} onChange={setTab} options={[['dest', `Destinazioni (${data.destinations.length})`], ['dns', `Domini (${data.domains.length})`]]} />
-            <a className="btn sm" href={`/api/export/destinations.csv?range=${range}&device=${d.id}`} download><Download />CSV</a>
-          </CardHead>
-          {tab === 'dest' ? (data.destinations.length === 0 ? <Empty>Nessuna connessione registrata</Empty> : (
-            <div style={{ overflowX: 'auto' }}>
-              <table className="tbl">
-                <thead><tr><th>Destinazione</th><th>Paese</th><th>Rete (ASN)</th><th>Porte</th><th className="r"><ArrowDown size={12} /> Download</th><th className="r"><ArrowUp size={12} /> Upload</th><th style={{ width: 130 }} /></tr></thead>
-                <tbody>
-                  {data.destinations.map((x) => (
-                    <tr key={x.ip}>
-                      <td>
-                        <div className="hstack" style={{ gap: 8 }}>
-                          {x.flagged && <ShieldAlert size={16} color="var(--err)" aria-label="In watchlist" />}
-                          <div style={{ minWidth: 0 }}>
-                            <div className="name">{x.domain ?? (x.ip.startsWith('*') ? 'Altri indirizzi' : x.ip)}</div>
-                            {x.domain && <div className="meta num">{x.ip}</div>}
-                            {x.ip.startsWith('*') && <div className="meta">Molte destinazioni diverse, raggruppate per paese</div>}
-                          </div>
-                        </div>
-                      </td>
-                      <td style={{ whiteSpace: 'nowrap' }}>{flag(x.cc)} {countryName(x.cc)}</td>
-                      <td className="muted ellipsis" style={{ maxWidth: 240 }} title={x.org ?? ''}>{x.org ?? '—'}{x.asn ? <span className="faint"> · AS{x.asn}</span> : null}</td>
-                      <td className="meta">{(x.ports ?? '').split(',').slice(0, 3).map((p) => PROTO_PORT[p] ?? p).join(', ')}</td>
-                      <td className="r num">{fmtBytes(x.down)}</td>
-                      <td className="r num" style={x.flagged ? { color: '#ffa3a8', fontWeight: 600 } : undefined}>{fmtBytes(x.up)}</td>
-                      <td><UpDownBar up={x.up} down={x.down} max={maxDest} /></td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )) : (data.domains.length === 0 ? <Empty>Nessuna query DNS registrata per questo dispositivo</Empty> : (
-            <table className="tbl">
-              <thead><tr><th>Dominio</th><th>Categoria</th><th className="r">Query</th><th className="r">Bloccate</th></tr></thead>
-              <tbody>
-                {data.domains.map((x) => (
-                  <tr key={x.name} className="click" onClick={() => { window.location.hash = `/services/${encodeURIComponent(x.base)}`; }}>
-                    <td className="name">{x.name}</td>
-                    <td className="muted">{x.category}</td>
-                    <td className="r num">{fmtNum(x.queries)}</td>
-                    <td className="r num">{x.blocked ? <span className="pill err">{fmtNum(x.blocked)}</span> : <span className="faint">—</span>}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          ))}
-        </Card>
+        <DestinationsCard deviceId={d.id} range={range} win={win} onClearWin={() => setWin(null)} domains={data.domains} />
 
         <Card>
           <CardHead icon={Clock} title="Eventi del dispositivo" />
