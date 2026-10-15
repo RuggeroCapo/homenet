@@ -76,18 +76,29 @@ do_wifi() {
 
 # Emits per-flow byte deltas since the previous call (state kept in RAM under /tmp).
 # Row: [proto, orig_src, orig_sport, orig_dst, orig_dport, d_orig_bytes, reply_src, d_reply_bytes, is_new]
+# A flow missing from one dump (the /proc listing is not atomic) keeps its baseline for a few
+# calls, otherwise it would come back as "new" and its whole byte count would be reported again.
+CT_KEEP=4
 do_conntrack() {
 	src=/proc/net/nf_conntrack
 	if [ ! -r "$src" ]; then
 		if command -v conntrack >/dev/null; then src=tool; else echo '{"error":"conntrack not available","flows":[]}'; return; fi
 	fi
+	# one run at a time: two runs reading the same state would report the same deltas twice
+	lock="$STATE/ct.lock"
+	if ! mkdir "$lock" 2>/dev/null; then
+		if [ $(( $(date +%s) - $(cat "$lock/t" 2>/dev/null || echo 0) )) -lt 120 ]; then echo '{"busy":true,"flows":[]}'; return; fi
+		rm -rf "$lock"
+		mkdir "$lock" 2>/dev/null || { echo '{"busy":true,"flows":[]}'; return; }
+	fi
+	date +%s > "$lock/t"
 	seed=0
 	[ -f "$STATE/ct.state" ] || seed=1
 	{ if [ "$src" = tool ]; then conntrack -L -o extended 2>/dev/null; else cat "$src"; fi; } | awk \
-		-v state="$STATE/ct.state" -v out="$STATE/ct.new" -v seed="$seed" -v max="$CONNTRACK_MAX" '
+		-v state="$STATE/ct.state" -v out="$STATE/ct.new" -v seed="$seed" -v max="$CONNTRACK_MAX" -v keep="$CT_KEEP" '
 	function priv(ip) { return ip ~ /^(10\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[01])\.|127\.|169\.254\.|0\.|2(2[4-9]|[3-5][0-9])\.)/ }
 	BEGIN {
-		while ((getline line < state) > 0) { split(line, a, " "); po[a[1]] = a[2]; pr[a[1]] = a[3] }
+		while ((getline line < state) > 0) { split(line, a, " "); po[a[1]] = a[2]; pr[a[1]] = a[3]; pm[a[1]] = a[4] + 0 }
 		close(state)
 		printf "{\"seed\":%s,\"flows\":[", (seed ? "true" : "false")
 	}
@@ -105,7 +116,9 @@ do_conntrack() {
 		if (l3 == "ipv4" && priv(s) && priv(d)) next
 		if (l3 == "ipv6" && (s ~ /^(fe80:|ff|::1$)/ || d ~ /^(fe80:|ff|::1$)/)) next
 		key = proto "|" s "|" sp "|" d "|" dp
-		print key, obs, rbs > out
+		if (key in seen) next
+		seen[key] = 1
+		print key, obs, rbs, 0 > out
 		ob = obs + 0; rb = rbs + 0
 		isnew = !(key in po)
 		dob = ob - (isnew ? 0 : po[key] + 0); drb = rb - (isnew ? 0 : pr[key] + 0)
@@ -115,8 +128,12 @@ do_conntrack() {
 		if (c >= max) { trunc++; next }
 		printf "%s[\"%s\",\"%s\",%d,\"%s\",%d,%.0f,\"%s\",%.0f,%d]", (c++ ? "," : ""), proto, s, sp, d, dp, dob, rs, drb, isnew
 	}
-	END { close(out); printf "],\"truncated\":%d}\n", trunc + 0 }'
-	[ -f "$STATE/ct.new" ] && mv "$STATE/ct.new" "$STATE/ct.state"
+	END {
+		for (k in po) if (!(k in seen) && pm[k] < keep) print k, po[k], pr[k], pm[k] + 1 > out
+		close(out); printf "],\"truncated\":%d}\n", trunc + 0
+	}'
+	if [ -f "$STATE/ct.new" ]; then mv "$STATE/ct.new" "$STATE/ct.state"; else : > "$STATE/ct.state"; fi
+	rm -rf "$lock"
 }
 
 detect_modem() {

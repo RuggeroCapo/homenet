@@ -8,7 +8,7 @@ export type FlowRow = [proto: string, src: string, sport: number, dst: string, d
 export interface RawInfo { plugin?: number; board: any; system: any; ifaces: { interface: any[] } | null; netdev: Record<string, [number, number]>; offload?: string; acct?: string }
 export interface RawHosts { leases: [mac: string, ip: string, name: string][]; neigh: [ip: string, mac: string, state: string, dev: string][] }
 export type RawWifi = Record<string, { info: any; assoc: { results?: any[] } | null }>;
-export interface RawConntrack { seed?: boolean; flows: FlowRow[]; truncated?: number; error?: string }
+export interface RawConntrack { seed?: boolean; busy?: boolean; flows: FlowRow[]; truncated?: number; error?: string }
 export interface RawSms { msg?: Array<Record<string, unknown>> }
 export type RouterAction = 'reboot' | 'restart_wan' | 'modem_reset';
 /** Desired internet-access state, sent whole on every call (see do_access in the router plugin). */

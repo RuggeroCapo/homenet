@@ -137,6 +137,8 @@ export class RouterCollector {
   private async conntrack() {
     const raw = await this.api.conntrack();
     if (raw.error) throw new Error(raw.error);
+    // a previous call (one we gave up on) is still running on the router; it owns these deltas
+    if (raw.busy) return;
     state.conntrackTruncated = raw.truncated ?? 0;
     const now = Date.now() / 1000;
     const windowSecs = this.lastConntrack ? now - this.lastConntrack : 0;
