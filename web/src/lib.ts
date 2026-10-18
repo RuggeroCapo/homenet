@@ -4,7 +4,10 @@ export type Range = '1h' | '24h' | '7d' | '15d';
 export const RANGE_LABEL: Record<Range, string> = { '1h': 'Ultima ora', '24h': 'Ultime 24 ore', '7d': 'Ultimi 7 giorni', '15d': 'Ultimi 15 giorni' };
 
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(path, { ...init, headers: { 'content-type': 'application/json', ...(init?.headers ?? {}) } });
+  // Fastify rejects an empty body declared as JSON with 400, so only send the header with a body
+  const headers = new Headers(init?.headers);
+  if (init?.body != null && !headers.has('content-type')) headers.set('content-type', 'application/json');
+  const res = await fetch(path, { ...init, headers });
   const body = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error((body as { error?: string }).error ?? `HTTP ${res.status}`);
   return body as T;
