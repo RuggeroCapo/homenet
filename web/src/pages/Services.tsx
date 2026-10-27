@@ -1,15 +1,46 @@
-import { Ban, ChevronLeft, Globe, Layers, Monitor, Search, Server } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { Ban, ChevronLeft, Globe, Layers, Monitor, Search, Server, ShieldBan, ShieldCheck } from 'lucide-react';
+import { useMemo, useState, type MouseEvent } from 'react';
 import { PageHead, type PageProps } from '../App';
 import { ShareBar } from '../components/charts';
-import { Card, CardHead, DeviceIcon, Empty, LetterAvatar, RangePicker, Skeleton, Stat, Stats } from '../components/ui';
-import { countryName, flag, fmtBytes, fmtNum, fmtPct, hashColor, seriesColor, usePoll } from '../lib';
+import { Card, CardHead, DeviceIcon, Empty, LetterAvatar, RangePicker, Skeleton, Stat, Stats, useUi } from '../components/ui';
+import { api, countryName, flag, fmtBytes, fmtNum, fmtPct, hashColor, seriesColor, usePoll } from '../lib';
 import type { Service } from '../types';
 import { SetupBanner } from './Overview';
+
+/** Domains blocked for the whole network with an AdGuard custom rule. */
+interface Blocklist { available: boolean; bases: string[] }
+
+/** Blocks / unblocks a service on the fly; hidden when AdGuard Home is not reachable. */
+function BlockButton({ base, list, onChange, compact }: { base: string; list: Blocklist | null; onChange: () => Promise<void>; compact?: boolean }) {
+  const { confirm, toast } = useUi();
+  const [busy, setBusy] = useState(false);
+  if (!list?.available) return null;
+  const blocked = list.bases.includes(base);
+  const click = async (e: MouseEvent) => {
+    e.stopPropagation();
+    if (!blocked && !await confirm({
+      title: `Bloccare ${base}?`,
+      body: 'AdGuard Home smetterà di risolvere questo dominio e tutti i suoi sottodomini per ogni dispositivo della rete. Le app già collegate possono funzionare ancora per qualche minuto, finché non ripetono la richiesta DNS.',
+      confirm: 'Blocca', danger: true,
+    })) return;
+    setBusy(true);
+    try {
+      await api(blocked ? `/api/blocklist/${encodeURIComponent(base)}` : '/api/blocklist', blocked ? { method: 'DELETE' } : { method: 'POST', body: JSON.stringify({ base }) });
+      await onChange();
+      toast(blocked ? `${base} sbloccato` : `${base} bloccato per tutta la rete`);
+    } catch (err) { toast(err instanceof Error ? err.message : String(err), 'err'); } finally { setBusy(false); }
+  };
+  const Icon = blocked ? ShieldCheck : ShieldBan;
+  const label = blocked ? 'Sblocca' : 'Blocca';
+  return compact
+    ? <button className={`btn sm icon-btn ${blocked ? '' : 'ghost'}`} onClick={click} disabled={busy} title={`${label} ${base}`} aria-label={`${label} ${base}`}><Icon /></button>
+    : <button className={`btn ${blocked ? '' : 'danger'}`} onClick={click} disabled={busy}><Icon />{label}</button>;
+}
 
 export function Services({ range, setRange }: PageProps) {
   const { data } = usePoll<Service[]>(`/api/services?range=${range}`, 60_000);
   const { data: status } = usePoll<{ configured: { router: boolean; adguard: boolean } }>('/api/status', 60_000);
+  const { data: blocklist, reload: reloadBlocklist } = usePoll<Blocklist>('/api/blocklist', 60_000);
   const [q, setQ] = useState('');
   const [cat, setCat] = useState('');
   const cats = useMemo(() => [...new Set((data ?? []).map((s) => s.category))].sort(), [data]);
@@ -46,7 +77,13 @@ export function Services({ range, setRange }: PageProps) {
               <tbody>
                 {list.map((s) => (
                   <tr key={s.base} className="click" onClick={() => { window.location.hash = `/services/${encodeURIComponent(s.base)}`; }}>
-                    <td><div className="hstack" style={{ gap: 10 }}><LetterAvatar text={s.base} color={hashColor(s.base)} size="sm" /><span className="name">{s.base}</span></div></td>
+                    <td>
+                      <div className="hstack" style={{ gap: 10 }}>
+                        <LetterAvatar text={s.base} color={hashColor(s.base)} size="sm" /><span className="name">{s.base}</span>
+                        {blocklist?.bases.includes(s.base) && <span className="pill err">Bloccato</span>}
+                        <span style={{ marginLeft: 'auto' }}><BlockButton base={s.base} list={blocklist} onChange={reloadBlocklist} compact /></span>
+                      </div>
+                    </td>
                     <td data-label="Categoria" className="muted">{s.category}</td>
                     <td data-label="Query" className="r num">{fmtNum(s.queries)}</td>
                     <td data-label="Bloccate" className="r num">{s.blocked ? <span className="pill err">{fmtNum(s.blocked)}</span> : <span className="faint">—</span>}</td>
@@ -73,10 +110,12 @@ interface ServiceDetailData {
 
 export function ServiceDetail({ base, range, setRange }: PageProps & { base: string }) {
   const { data } = usePoll<ServiceDetailData>(`/api/services/${encodeURIComponent(base)}?range=${range}`, 60_000);
+  const { data: blocklist, reload: reloadBlocklist } = usePoll<Blocklist>('/api/blocklist', 60_000);
   return (
     <>
       <a href="#/services" className="back"><ChevronLeft size={16} />Servizi e Domini</a>
-      <PageHead title={base} subtitle={data?.category}>
+      <PageHead title={base} subtitle={blocklist?.bases.includes(base) ? <>{data?.category && `${data.category} · `}<span className="pill err">Bloccato da HomeNet</span></> : data?.category}>
+        <BlockButton base={base} list={blocklist} onChange={reloadBlocklist} />
         <RangePicker value={range} onChange={setRange} />
       </PageHead>
       {!data ? <Skeleton h={400} /> : (

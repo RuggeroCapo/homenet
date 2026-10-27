@@ -23,6 +23,7 @@ const PORT = Number(process.env.PORT ?? 3000);
 
 let routerCollector: RouterCollector | null = null;
 let dnsCollector: DnsCollector | null = null;
+let adguardApi: AdGuardApi | null = null;
 
 async function startCollectors(s: Settings) {
   routerCollector?.stop();
@@ -32,7 +33,7 @@ async function startCollectors(s: Settings) {
   for (const k of ['router.info', 'router.hosts', 'router.wifi', 'router.conntrack', 'router.modem', 'router.sms', 'adguard']) collectorDisabled(k);
 
   let routerApi: RouterApi | null = null;
-  let adguardApi: AdGuardApi | null = null;
+  adguardApi = null;
   if (DEMO) {
     const demo = await import('./demo.js');
     demo.backfillDemo();
@@ -79,7 +80,7 @@ async function main() {
   access.start();
 
   const app = Fastify({ logger: false, bodyLimit: 256 * 1024 });
-  registerApi(app, () => routerCollector, access);
+  registerApi(app, () => routerCollector, () => adguardApi, access);
 
   const here = path.dirname(fileURLToPath(import.meta.url));
   const webRoot = [process.env.WEB_ROOT, path.join(here, '../public'), path.join(here, '../../web/dist')].find((p) => p && fs.existsSync(p));

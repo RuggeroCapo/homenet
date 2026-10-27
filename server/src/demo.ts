@@ -1,6 +1,6 @@
 // DEMO=1: simulated OpenWrt router + AdGuard Home, plus 7 days of back-filled history.
 // Lets you develop the UI without touching the real network.
-import type { AdGuardApi, QueryLogEntry } from './adguard.js';
+import { blockedBases, type AdGuardApi, type QueryLogEntry } from './adguard.js';
 import { backfillRollups, db, domainId, localDay } from './db.js';
 import { guessKind } from './devices.js';
 import { addEvent } from './events.js';
@@ -182,6 +182,7 @@ export class DemoRouter implements RouterApi {
 export class DemoAdGuard implements AdGuardApi {
   private buf: QueryLogEntry[] = [];
   private last = Date.now() / 1000 - 3600;
+  private rules: string[] = [];
 
   private generate() {
     const now = Date.now() / 1000;
@@ -193,7 +194,8 @@ export class DemoAdGuard implements AdGuardApi {
       for (let i = 0; i < n; i++) {
         const name = names[Math.floor(Math.random() * names.length)];
         const dest = Object.values(D).find((d) => d.domain === name);
-        const blocked = /tracking|ad\.|ads\.|lgsmartad|measurement|doubleclick|googletagmanager|firebaselogging|ngfts|samsungads|sentry/.test(name);
+        const blocked = /tracking|ad\.|ads\.|lgsmartad|measurement|doubleclick|googletagmanager|firebaselogging|ngfts|samsungads|sentry/.test(name)
+          || blockedBases(this.rules).some((b) => name === b || name.endsWith(`.${b}`));
         out.push({
           time: new Date((this.last + Math.random() * (now - this.last)) * 1000).toISOString(),
           client: dev.ip,
@@ -218,6 +220,13 @@ export class DemoAdGuard implements AdGuardApi {
 
   async status() {
     return { version: 'v0.107.52 (demo)', running: true, protection_enabled: true };
+  }
+
+  async userRules() { return [...this.rules]; }
+
+  async setUserRules(rules: string[]) {
+    this.rules = [...rules];
+    log.info(`demo: adguard rules=[${rules.join(' ')}]`);
   }
 }
 

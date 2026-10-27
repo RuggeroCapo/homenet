@@ -4,7 +4,7 @@ name: HomeNet
 tagline: Router watchdog, traffic analytics and where your devices send data
 icon: https://raw.githubusercontent.com/RuggeroCapo/homenet/main/umbrel/ruggero-homenet/icon.svg
 category: networking
-version: "0.4.1"
+version: "0.5.0"
 port: 8790
 description: >-
   HomeNet monitors your OpenWrt router (LTE / Wi-Fi signal, WAN status, latency) and can
@@ -25,7 +25,8 @@ repo: https://github.com/RuggeroCapo/homenet
 support: https://github.com/RuggeroCapo/homenet/issues
 gallery: []
 releaseNotes: >-
-  Fixes "Bad Request" when giving internet back to a paused device ("Riattiva ora") or ending the "only some devices" mode.
+  Block a service on the fly: a new "Blocca" button in Servizi e Domini adds an AdGuard Home custom rule
+  that blocks the domain and its subdomains for the whole network ("Sblocca" removes it).
 dependencies:
   - adguard-home
 widgets:

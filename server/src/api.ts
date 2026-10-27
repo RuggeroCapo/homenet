@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { ACCESS_PLUGIN, evaluate, getLockdown, MAX_LOCKDOWN_SECS, periodBounds, setLockdown, validSchedule, type AccessController, type CapPeriod } from './access.js';
-import { AdGuardClient } from './adguard.js';
+import { AdGuardClient, blockedBases, blockRule, type AdGuardApi } from './adguard.js';
 import { categoryOf } from './categories.js';
 import type { RouterCollector } from './collectors/router.js';
 import { runAction } from './collectors/watchdog.js';
@@ -202,7 +202,7 @@ function accessStatus() {
   };
 }
 
-export function registerApi(app: FastifyInstance, getRouter: () => RouterCollector | null, access: AccessController) {
+export function registerApi(app: FastifyInstance, getRouter: () => RouterCollector | null, getAdguard: () => AdGuardApi | null, access: AccessController) {
   app.get('/api/status', async () => ({
     version: VERSION,
     demo: DEMO,
@@ -522,6 +522,45 @@ export function registerApi(app: FastifyInstance, getRouter: () => RouterCollect
     const ips = db.prepare(`SELECT f.ip, f.cc, a.org, SUM(f.up) AS up, SUM(f.down) AS down FROM flows_1h f JOIN domains d ON d.id = f.domain_id LEFT JOIN asns a ON a.asn = f.asn
       WHERE d.base = ? AND f.ts >= ? GROUP BY f.ip ORDER BY SUM(up) + SUM(down) DESC LIMIT 50`).all(base, hs);
     return { base, category: categoryOf(base), devices, subdomains, ips };
+  });
+
+  // ---- services blocked for the whole network with AdGuard custom rules (||domain^) ----
+  const validBase = (v: unknown) => {
+    const b = String(v ?? '').trim().toLowerCase();
+    return /^(?=.{1,253}$)([a-z0-9-]{1,63}\.)+[a-z0-9-]{2,63}$/.test(b) ? b : null;
+  };
+
+  app.get('/api/blocklist', async () => {
+    const ag = getAdguard();
+    if (!ag) return { available: false, bases: [] };
+    try { return { available: true, bases: blockedBases(await ag.userRules()) }; } catch (e) { return { available: false, bases: [], error: e instanceof Error ? e.message : String(e) }; }
+  });
+
+  app.post('/api/blocklist', async (req, reply) => {
+    const ag = getAdguard();
+    if (!ag) return reply.code(400).send({ error: 'AdGuard Home non è configurato' });
+    const base = validBase((req.body as { base?: string } | undefined)?.base);
+    if (!base) return reply.code(400).send({ error: 'dominio non valido' });
+    const rules = await ag.userRules();
+    if (blockedBases(rules).includes(base)) return { available: true, bases: blockedBases(rules) };
+    const next = [...rules, blockRule(base)];
+    await ag.setUserRules(next);
+    addEvent('access_info', 'info', `Servizio bloccato: ${base}`, 'Regola personalizzata di AdGuard Home, per tutta la rete');
+    return { available: true, bases: blockedBases(next) };
+  });
+
+  app.delete('/api/blocklist/:base', async (req, reply) => {
+    const ag = getAdguard();
+    if (!ag) return reply.code(400).send({ error: 'AdGuard Home non è configurato' });
+    const base = validBase((req.params as { base: string }).base);
+    if (!base) return reply.code(400).send({ error: 'dominio non valido' });
+    const rules = await ag.userRules();
+    const rest = rules.filter((r) => r.trim().toLowerCase() !== blockRule(base));
+    if (rest.length !== rules.length) {
+      await ag.setUserRules(rest);
+      addEvent('access_info', 'success', `Servizio sbloccato: ${base}`, null);
+    }
+    return { available: true, bases: blockedBases(rest) };
   });
 
   app.get('/api/geo', async (req) => cached(req.url, (req.query as { range?: string }).range, () => {
